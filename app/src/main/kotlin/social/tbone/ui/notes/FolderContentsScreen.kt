@@ -1,8 +1,8 @@
 package social.tbone.ui.notes
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -136,7 +136,7 @@ fun FolderContentsScreen(
                     Spacer(Modifier.height(20.dp))
                     Box(
                         modifier = Modifier
-                            .border(1.dp, BonyColors.Accent)
+                            .appBorder(1.dp, BonyColors.Accent)
                             .clickable { onNewNote() }
                             .padding(horizontal = 24.dp, vertical = 12.dp),
                     ) {
@@ -177,7 +177,7 @@ fun FolderContentsScreen(
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
                 .padding(end = 16.dp, bottom = 12.dp)
-                .border(1.dp, BonyColors.AccentDim)
+                .appBorder(1.dp, BonyColors.AccentDim)
                 .background(BonyColors.Surface)
                 .clickable { fabMenu = true }
                 .padding(horizontal = 18.dp, vertical = 12.dp),
@@ -197,7 +197,7 @@ fun FolderContentsScreen(
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
                     .padding(end = 16.dp, bottom = 12.dp)
-                    .border(1.dp, BonyColors.RuleStrong)
+                    .appBorder(1.dp, BonyColors.RuleStrong)
                     .background(BonyColors.Surface)
                     .clickable(enabled = false) {}
                     .padding(vertical = 6.dp),
@@ -306,7 +306,7 @@ private fun FolderNoteActionsOverlay(
     ) {
         Column(
             modifier = Modifier
-                .border(1.dp, BonyColors.RuleStrong)
+                .appBorder(1.dp, BonyColors.RuleStrong)
                 .background(BonyColors.Surface)
                 .clickable(enabled = false) {}
                 .padding(vertical = 6.dp),

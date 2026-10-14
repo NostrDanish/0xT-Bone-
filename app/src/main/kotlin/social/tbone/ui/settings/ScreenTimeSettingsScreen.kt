@@ -1,7 +1,7 @@
 package social.tbone.ui.settings
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,7 +102,7 @@ fun ScreenTimeSettingsScreen(
                     modifier = Modifier
                         .size(36.dp, 22.dp)
                         .background(if (enabled) BonyColors.AccentBg else BonyColors.Bg)
-                        .border(1.dp, if (enabled) BonyColors.Accent else BonyColors.RuleStrong)
+                        .appBorder(1.dp, if (enabled) BonyColors.Accent else BonyColors.RuleStrong)
                         .clickable { viewModel.setScreenTimeEnabled(!enabled) }
                         .padding(2.dp),
                 ) {
@@ -183,7 +183,7 @@ private fun StepperButton(label: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(44.dp)
-            .border(1.dp, BonyColors.Rule)
+            .appBorder(1.dp, BonyColors.Rule)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

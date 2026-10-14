@@ -1,8 +1,8 @@
 package social.tbone.ui.notes
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -159,7 +159,7 @@ fun ChecklistEditorScreen(
                 text = "share",
                 style = BonyType.tag.copy(color = BonyColors.Accent),
                 modifier = Modifier
-                    .border(1.dp, BonyColors.AccentDim)
+                    .appBorder(1.dp, BonyColors.AccentDim)
                     .clickable { onShare(ChecklistData(title, items).toDisplayText()) }
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             )
@@ -168,7 +168,7 @@ fun ChecklistEditorScreen(
                 text = "delete",
                 style = BonyType.tag.copy(color = BonyColors.Danger),
                 modifier = Modifier
-                    .border(1.dp, BonyColors.Danger)
+                    .appBorder(1.dp, BonyColors.Danger)
                     .clickable {
                         savedId?.let { viewModel.delete(it) }
                         onBack()
@@ -263,7 +263,7 @@ fun ChecklistEditorScreen(
             Spacer(Modifier.width(8.dp))
             Box(
                 modifier = Modifier
-                    .border(1.dp, if (draft.isNotBlank()) BonyColors.Accent else BonyColors.Rule)
+                    .appBorder(1.dp, if (draft.isNotBlank()) BonyColors.Accent else BonyColors.Rule)
                     .clickable(enabled = draft.isNotBlank()) { addItem() }
                     .padding(horizontal = 14.dp, vertical = 14.dp),
             ) {
@@ -314,7 +314,7 @@ private fun ChecklistItemRow(
         Box(
             modifier = Modifier
                 .size(18.dp)
-                .border(1.dp, if (item.checked) BonyColors.Accent else BonyColors.RuleStrong)
+                .appBorder(1.dp, if (item.checked) BonyColors.Accent else BonyColors.RuleStrong)
                 .background(if (item.checked) BonyColors.AccentBg else BonyColors.Bg)
                 .clickable(onClick = onToggle),
             contentAlignment = Alignment.Center,
@@ -374,7 +374,7 @@ private fun ItemEditOverlay(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 32.dp)
-                .border(1.dp, BonyColors.RuleStrong)
+                .appBorder(1.dp, BonyColors.RuleStrong)
                 .background(BonyColors.Surface)
                 .clickable(enabled = false) {}
                 .padding(16.dp),

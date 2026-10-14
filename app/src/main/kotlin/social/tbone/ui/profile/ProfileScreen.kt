@@ -1,11 +1,11 @@
 package social.tbone.ui.profile
 
+import social.tbone.ui.theme.appBorder
 import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -288,7 +288,7 @@ fun ProfileScreen(
                     // Fingerprint pill
                     Box(
                         modifier = Modifier
-                            .border(1.dp, BonyColors.Rule)
+                            .appBorder(1.dp, BonyColors.Rule)
                             .background(BonyColors.SurfaceAlt)
                             .clickable { onVerifyClick(pubkey) }
                             .padding(horizontal = 12.dp, vertical = 8.dp),

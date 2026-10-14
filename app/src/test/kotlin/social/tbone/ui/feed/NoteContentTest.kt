@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import androidx.compose.ui.unit.dp
 import social.tbone.nostr.Nip19
 
 /**
@@ -66,5 +67,24 @@ class NoteContentTest {
         // (only the trailing quote form and the quoted id itself are removed).
         val body = stripQuoteRefs("see also nostr:${Nip19.hexToNote(other)} for details", quoted)
         assertTrue(body.contains("nostr:"))
+    }
+
+    @Test fun mediaFramePreservesFitSizeAndTrimsOnlyLetterboxSpace() {
+        val bounds = fitMediaFrame(400.dp, 260.dp, aspectRatio = 2f)!!
+        assertEquals(400f, bounds.width.value, 0.01f)
+        assertEquals(200f, bounds.height.value, 0.01f)
+
+        val portrait = fitMediaFrame(400.dp, 260.dp, aspectRatio = 0.5f)!!
+        assertEquals(130f, portrait.width.value, 0.01f)
+        assertEquals(260f, portrait.height.value, 0.01f)
+
+        assertNull(fitMediaFrame(400.dp, 260.dp, aspectRatio = Float.NaN))
+    }
+
+    @Test fun videoAspectRatioAccountsForRotationAndPixelAspect() {
+        assertEquals(16f / 9f, videoDisplayAspectRatio(1920, 1080, 1f, 0)!!, 0.001f)
+        assertEquals(9f / 16f, videoDisplayAspectRatio(1920, 1080, 1f, 90)!!, 0.001f)
+        assertEquals(1f / (32f / 9f), videoDisplayAspectRatio(1920, 1080, 2f, 270)!!, 0.001f)
+        assertNull(videoDisplayAspectRatio(0, 1080, 1f, 0))
     }
 }

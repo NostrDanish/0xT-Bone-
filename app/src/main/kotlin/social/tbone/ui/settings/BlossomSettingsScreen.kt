@@ -1,7 +1,7 @@
 package social.tbone.ui.settings
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -92,7 +92,7 @@ fun BlossomSettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, BonyColors.Rule)
+                        .appBorder(1.dp, BonyColors.Rule)
                         .background(BonyColors.Surface)
                         .padding(10.dp),
                 ) {
@@ -110,7 +110,7 @@ fun BlossomSettingsScreen(
                                 color = if (isDefault) BonyColors.Accent else BonyColors.TextMute,
                             ),
                             modifier = Modifier
-                                .border(1.dp, if (isDefault) BonyColors.AccentDim else BonyColors.Rule)
+                                .appBorder(1.dp, if (isDefault) BonyColors.AccentDim else BonyColors.Rule)
                                 .clickable { viewModel.setBlossomDefaultServer(if (isDefault) null else server) }
                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                         )
@@ -127,7 +127,7 @@ fun BlossomSettingsScreen(
                                 text = "remove",
                                 style = BonyType.tag.copy(color = BonyColors.Danger),
                                 modifier = Modifier
-                                    .border(1.dp, BonyColors.Danger)
+                                    .appBorder(1.dp, BonyColors.Danger)
                                     .clickable { viewModel.removeBlossomServer(server) }
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
                             )
@@ -161,7 +161,7 @@ fun BlossomSettingsScreen(
                         color = if (customInput.isNotBlank()) BonyColors.Accent else BonyColors.TextMute,
                     ),
                     modifier = Modifier
-                        .border(1.dp, if (customInput.isNotBlank()) BonyColors.AccentDim else BonyColors.Rule)
+                        .appBorder(1.dp, if (customInput.isNotBlank()) BonyColors.AccentDim else BonyColors.Rule)
                         .clickable(enabled = customInput.isNotBlank()) {
                             viewModel.addBlossomServer(customInput)
                             customInput = ""
@@ -189,7 +189,7 @@ fun BlossomSettingsScreen(
                     modifier = Modifier
                         .size(36.dp, 22.dp)
                         .background(if (compress) BonyColors.AccentBg else BonyColors.Bg)
-                        .border(1.dp, if (compress) BonyColors.Accent else BonyColors.RuleStrong)
+                        .appBorder(1.dp, if (compress) BonyColors.Accent else BonyColors.RuleStrong)
                         .clickable { viewModel.setBlossomCompress(!compress) }
                         .padding(2.dp),
                 ) {

@@ -1,5 +1,6 @@
 package social.tbone.ui.toolbox.calendar
 
+import social.tbone.ui.theme.appBorder
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -9,7 +10,6 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -220,7 +220,7 @@ fun CalendarEventEditorScreen(
                     text = "delete",
                     style = BonyType.tag.copy(color = BonyColors.Danger),
                     modifier = Modifier
-                        .border(1.dp, BonyColors.Danger)
+                        .appBorder(1.dp, BonyColors.Danger)
                         .clickable {
                             savedId?.let { viewModel.deleteEvent(it) }
                             onBack()
@@ -235,7 +235,7 @@ fun CalendarEventEditorScreen(
                     color = if (encryptionVerified) BonyColors.Accent else BonyColors.TextMute,
                 ),
                 modifier = Modifier
-                    .border(1.dp, if (encryptionVerified) BonyColors.AccentDim else BonyColors.Rule)
+                    .appBorder(1.dp, if (encryptionVerified) BonyColors.AccentDim else BonyColors.Rule)
                     // Save always closes the editor — even when there's nothing
                     // new to save (performSave no-ops on blank/unchanged).
                     .clickable(enabled = encryptionVerified) {
@@ -303,7 +303,7 @@ fun CalendarEventEditorScreen(
                     modifier = Modifier
                         .size(36.dp, 22.dp)
                         .background(if (allDay) BonyColors.AccentBg else BonyColors.Bg)
-                        .border(1.dp, if (allDay) BonyColors.Accent else BonyColors.RuleStrong)
+                        .appBorder(1.dp, if (allDay) BonyColors.Accent else BonyColors.RuleStrong)
                         .clickable { allDay = !allDay }
                         .padding(2.dp),
                 ) {
@@ -320,7 +320,7 @@ fun CalendarEventEditorScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, BonyColors.Rule)
+                    .appBorder(1.dp, BonyColors.Rule)
                     .clickable { showRepeatPicker = true }
                     .padding(horizontal = 14.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -344,7 +344,7 @@ fun CalendarEventEditorScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, BonyColors.Rule)
+                        .appBorder(1.dp, BonyColors.Rule)
                         .clickable { showEndDatePicker = true }
                         .padding(horizontal = 14.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -408,7 +408,7 @@ fun CalendarEventEditorScreen(
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
                     .padding(bottom = 40.dp)
-                    .border(1.dp, BonyColors.RuleStrong)
+                    .appBorder(1.dp, BonyColors.RuleStrong)
                     .background(BonyColors.Surface)
                     .clickable { repeatEndDate = null; showEndDatePicker = false }
                     .padding(horizontal = 18.dp, vertical = 12.dp),
@@ -473,7 +473,7 @@ private fun ReminderPermDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 32.dp)
-                .border(1.dp, BonyColors.RuleStrong)
+                .appBorder(1.dp, BonyColors.RuleStrong)
                 .background(BonyColors.Surface)
                 .clickable(enabled = false) {}
                 .padding(18.dp),
@@ -507,7 +507,7 @@ private fun ReminderPermDialog(
                     text = "enable",
                     style = BonyType.tag.copy(color = BonyColors.Accent),
                     modifier = Modifier
-                        .border(1.dp, BonyColors.AccentDim)
+                        .appBorder(1.dp, BonyColors.AccentDim)
                         .clickable(onClick = onEnable)
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                 )
@@ -521,7 +521,7 @@ private fun FieldRow(label: String, value: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, BonyColors.Rule)
+            .appBorder(1.dp, BonyColors.Rule)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -562,7 +562,7 @@ private fun RepeatPickerOverlay(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 32.dp)
-                .border(1.dp, BonyColors.RuleStrong)
+                .appBorder(1.dp, BonyColors.RuleStrong)
                 .background(BonyColors.Surface)
                 .clickable(enabled = false) {}
                 .padding(18.dp),
@@ -585,7 +585,7 @@ private fun RepeatPickerOverlay(
                         ),
                         modifier = Modifier
                             .weight(1f)
-                            .border(
+                            .appBorder(
                                 1.dp,
                                 if (u == candidate) BonyColors.Accent else BonyColors.Rule,
                             )
@@ -614,7 +614,7 @@ private fun RepeatPickerOverlay(
                         text = "−",
                         style = BonyType.body.copy(color = BonyColors.TextMute),
                         modifier = Modifier
-                            .border(1.dp, BonyColors.Rule)
+                            .appBorder(1.dp, BonyColors.Rule)
                             .clickable { if (n > 1) n-- }
                             .padding(horizontal = 14.dp, vertical = 8.dp),
                     )
@@ -628,7 +628,7 @@ private fun RepeatPickerOverlay(
                         text = "+",
                         style = BonyType.body.copy(color = BonyColors.TextMute),
                         modifier = Modifier
-                            .border(1.dp, BonyColors.Rule)
+                            .appBorder(1.dp, BonyColors.Rule)
                             .clickable { if (n < 365) n++ }
                             .padding(horizontal = 14.dp, vertical = 8.dp),
                     )
@@ -657,7 +657,7 @@ private fun RepeatPickerOverlay(
                     text = "ok",
                     style = BonyType.tag.copy(color = BonyColors.Accent),
                     modifier = Modifier
-                        .border(1.dp, BonyColors.AccentDim)
+                        .appBorder(1.dp, BonyColors.AccentDim)
                         .clickable { onApply(u, if (u == RepeatUnit.NONE) 0 else n) }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                 )

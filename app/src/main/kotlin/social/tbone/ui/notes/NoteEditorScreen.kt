@@ -1,5 +1,6 @@
 package social.tbone.ui.notes
 
+import social.tbone.ui.theme.appBorder
 import android.Manifest
 import android.content.Context
 import android.media.MediaPlayer
@@ -10,7 +11,6 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -415,7 +415,7 @@ fun NoteEditorScreen(
                 text = "share",
                 style = BonyType.tag.copy(color = BonyColors.Accent),
                 modifier = Modifier
-                    .border(1.dp, BonyColors.AccentDim)
+                    .appBorder(1.dp, BonyColors.AccentDim)
                     .clickable { onShare(plainText(blocks)) }
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             )
@@ -424,7 +424,7 @@ fun NoteEditorScreen(
                 text = "delete",
                 style = BonyType.tag.copy(color = BonyColors.Danger),
                 modifier = Modifier
-                    .border(1.dp, BonyColors.Danger)
+                    .appBorder(1.dp, BonyColors.Danger)
                     .clickable {
                         savedId?.let { viewModel.delete(it) }
                         onBack()
@@ -563,7 +563,7 @@ private fun ToolbarChip(text: String, active: Boolean, onClick: () -> Unit, icon
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .border(1.dp, if (active) BonyColors.Danger else BonyColors.AccentDim)
+            .appBorder(1.dp, if (active) BonyColors.Danger else BonyColors.AccentDim)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
@@ -632,7 +632,7 @@ private fun AttachmentCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 18.dp, vertical = 8.dp)
-            .border(1.dp, BonyColors.RuleStrong)
+            .appBorder(1.dp, BonyColors.RuleStrong)
             .background(BonyColors.SurfaceAlt),
     ) {
             Row(
@@ -645,7 +645,7 @@ private fun AttachmentCard(
                     text = if (playing) "⏸" else "▶",
                     style = BonyType.body.copy(color = BonyColors.Accent),
                     modifier = Modifier
-                        .border(1.dp, BonyColors.AccentDim)
+                        .appBorder(1.dp, BonyColors.AccentDim)
                         .clickable(onClick = onPlay)
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                 )

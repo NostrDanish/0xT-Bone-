@@ -165,15 +165,30 @@ val JetBrainsMono: FontFamily = FontFamily(
 )
 
 object BonyType {
-    val wordmark = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold,     fontSize = 30.sp, lineHeight = 30.sp, letterSpacing = (-1.0).sp)
-    val title    = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold,     fontSize = 20.sp, lineHeight = 26.sp, letterSpacing = (-0.3).sp)
-    val body     = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Normal,   fontSize = 15.sp, lineHeight = 22.sp, letterSpacing = 0.sp)
-    val bodyDim  = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Normal,   fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.sp)
-    val meta     = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Normal,   fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0.4.sp)
-    val metaDim  = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Normal,   fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.4.sp)
-    val caption  = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Normal,   fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 1.5.sp)
-    val tag      = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 1.0.sp)
-    val button   = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 16.sp, letterSpacing = 1.0.sp)
+    // Legacy screens use explicit BonyType styles instead of MaterialTheme
+    // typography. Keep the original mono family in the classic UI, but let the
+    // Youniversal theme replace it app-wide without rewriting hundreds of call
+    // sites. Reading this snapshot state from a style getter also makes a font
+    // change recompose every screen that uses BonyType.
+    private var activeYouniversalFontFamily by mutableStateOf<FontFamily?>(null)
+
+    /** Called by ThemeHost when the active engine/typeface changes. */
+    fun setYouniversalFontFamily(fontFamily: FontFamily?) {
+        activeYouniversalFontFamily = fontFamily
+    }
+
+    private val currentFontFamily: FontFamily
+        get() = activeYouniversalFontFamily ?: JetBrainsMono
+
+    val wordmark get() = TextStyle(fontFamily = currentFontFamily, fontWeight = FontWeight.Bold,     fontSize = 30.sp, lineHeight = 30.sp, letterSpacing = (-1.0).sp)
+    val title    get() = TextStyle(fontFamily = currentFontFamily, fontWeight = FontWeight.Bold,     fontSize = 20.sp, lineHeight = 26.sp, letterSpacing = (-0.3).sp)
+    val body     get() = TextStyle(fontFamily = currentFontFamily, fontWeight = FontWeight.Normal,   fontSize = 15.sp, lineHeight = 22.sp, letterSpacing = 0.sp)
+    val bodyDim  get() = TextStyle(fontFamily = currentFontFamily, fontWeight = FontWeight.Normal,   fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.sp)
+    val meta     get() = TextStyle(fontFamily = currentFontFamily, fontWeight = FontWeight.Normal,   fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0.4.sp)
+    val metaDim  get() = TextStyle(fontFamily = currentFontFamily, fontWeight = FontWeight.Normal,   fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.4.sp)
+    val caption  get() = TextStyle(fontFamily = currentFontFamily, fontWeight = FontWeight.Normal,   fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 1.5.sp)
+    val tag      get() = TextStyle(fontFamily = currentFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 1.0.sp)
+    val button   get() = TextStyle(fontFamily = currentFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 16.sp, letterSpacing = 1.0.sp)
 }
 
 /**

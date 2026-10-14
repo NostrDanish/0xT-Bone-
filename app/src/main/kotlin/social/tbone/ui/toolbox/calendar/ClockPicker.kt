@@ -1,8 +1,8 @@
 package social.tbone.ui.toolbox.calendar
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -93,7 +93,7 @@ fun ClockPicker(
     ) {
         Column(
             modifier = Modifier
-                .border(1.dp, BonyColors.RuleStrong)
+                .appBorder(1.dp, BonyColors.RuleStrong)
                 .background(BonyColors.Surface)
                 .clickable(enabled = false) {}
                 .padding(20.dp),
@@ -223,7 +223,7 @@ fun ClockPicker(
                     text = "ok",
                     style = BonyType.tag.copy(color = BonyColors.Accent),
                     modifier = Modifier
-                        .border(1.dp, BonyColors.AccentDim)
+                        .appBorder(1.dp, BonyColors.AccentDim)
                         .clickable {
                             val h = if (am) hour12 % 12 else (hour12 % 12) + 12
                             onConfirm(LocalTime.of(h, minute))
@@ -241,7 +241,7 @@ private fun ClockChip(label: String, active: Boolean, onClick: () -> Unit) {
         text = label,
         style = BonyType.tag.copy(color = if (active) BonyColors.Accent else BonyColors.TextMute),
         modifier = Modifier
-            .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule)
+            .appBorder(1.dp, if (active) BonyColors.Accent else BonyColors.Rule)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 6.dp),
     )

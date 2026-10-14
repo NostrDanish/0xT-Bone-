@@ -5,6 +5,26 @@ All notable changes to this fork are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.3.51] — 2026-10-13
+
+### Added
+- A softer Nunito Sans typeface option in Youniversal, alongside the default
+  standard system sans-serif.
+
+### Changed
+- Youniversal's adjustable rounded shapes now carry through legacy T-Bone
+  screens, with rounded surfaces as the default while that theme is active.
+- Image, video, and thumbnail preview frames in Youniversal now fit their
+  media's aspect ratio within the existing display bounds.
+
+### Fixed
+- Youniversal text-size changes now scale SP-based typography across the app,
+  including the legacy screen styles.
+- NIP-57 invoice callback requests now include the matching bech32 `lnurl`
+  parameter as well as the signed zap request, fixing compatible NWC-backed
+  Lightning zaps that were rejected by LNURL services.
+
+
 ## [0.3.50] — 2026-10-09
 
 ### Fixed

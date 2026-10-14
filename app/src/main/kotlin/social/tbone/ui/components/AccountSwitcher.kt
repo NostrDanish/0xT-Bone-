@@ -1,7 +1,7 @@
 package social.tbone.ui.components
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -86,7 +86,7 @@ fun AccountSwitcherSheet(
                     Box(
                         modifier = Modifier
                             .size(width = 36.dp, height = 28.dp)
-                            .border(1.dp, BonyColors.Rule)
+                            .appBorder(1.dp, BonyColors.Rule)
                             .clickable { expanded = true },
                         contentAlignment = Alignment.Center,
                     ) {
@@ -112,7 +112,7 @@ fun AccountSwitcherSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(BonyColors.Surface)
-                    .border(1.dp, BonyColors.Rule),
+                    .appBorder(1.dp, BonyColors.Rule),
             ) {
                 // Drag handle + header
                 Box(
@@ -235,7 +235,7 @@ private fun SignerPill(signerType: SignerType) {
     }
     Box(
         modifier = Modifier
-            .border(1.dp, borderColor)
+            .appBorder(1.dp, borderColor)
             .padding(horizontal = 6.dp, vertical = 2.dp),
     ) {
         Text(label, style = BonyType.tag.copy(color = color))

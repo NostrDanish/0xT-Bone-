@@ -1,5 +1,6 @@
 package social.tbone.ui.toolbox
 
+import social.tbone.ui.theme.appBorder
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
@@ -154,7 +155,7 @@ fun VoiceRecorderScreen(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .border(
+                            .appBorder(
                                 1.dp,
                                 if (active) BonyColors.Accent else BonyColors.Rule,
                             )
@@ -292,7 +293,7 @@ fun VoiceRecorderScreen(
                         text = "open settings →",
                         style = BonyType.tag.copy(color = BonyColors.Accent),
                         modifier = Modifier
-                            .border(1.dp, BonyColors.Accent)
+                            .appBorder(1.dp, BonyColors.Accent)
                             .clickable { micPerm.openSettings() }
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     )
@@ -361,7 +362,7 @@ private fun MiniPlayer(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, BonyColors.Rule)
+            .appBorder(1.dp, BonyColors.Rule)
             .background(BonyColors.Surface)
             .padding(12.dp),
     ) {
@@ -435,7 +436,7 @@ private fun ActionButton(label: String, enabled: Boolean, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .border(1.dp, if (enabled) BonyColors.Accent else BonyColors.Rule)
+            .appBorder(1.dp, if (enabled) BonyColors.Accent else BonyColors.Rule)
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(vertical = 12.dp),
         contentAlignment = Alignment.Center,
@@ -461,7 +462,7 @@ private fun DistortionSliders(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, BonyColors.Rule)
+            .appBorder(1.dp, BonyColors.Rule)
             .background(BonyColors.SurfaceAlt)
             .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {

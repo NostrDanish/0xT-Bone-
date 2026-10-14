@@ -1,11 +1,11 @@
 package social.tbone.ui.notes
 
+import social.tbone.ui.theme.appBorder
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -127,7 +127,7 @@ fun NotesScreen(
                         color = if (encryptionVerified) BonyColors.Accent else BonyColors.Danger,
                     ),
                     modifier = Modifier
-                        .border(1.dp, if (encryptionVerified) BonyColors.AccentDim else BonyColors.Danger)
+                        .appBorder(1.dp, if (encryptionVerified) BonyColors.AccentDim else BonyColors.Danger)
                         .clickable { onInfo() }
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
@@ -165,7 +165,7 @@ fun NotesScreen(
                         Spacer(Modifier.height(20.dp))
                         Box(
                             modifier = Modifier
-                                .border(1.dp, BonyColors.Accent)
+                                .appBorder(1.dp, BonyColors.Accent)
                                 .clickable { onNewNote() }
                                 .padding(horizontal = 24.dp, vertical = 12.dp),
                         ) {
@@ -229,7 +229,7 @@ fun NotesScreen(
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
                 .padding(end = 16.dp, bottom = 12.dp)
-                .border(1.dp, BonyColors.AccentDim)
+                .appBorder(1.dp, BonyColors.AccentDim)
                 .background(BonyColors.Surface)
                 .clickable { fabMenu = true }
                 .padding(horizontal = 18.dp, vertical = 12.dp),
@@ -337,7 +337,7 @@ private fun FabMenuOverlay(
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
                 .padding(end = 16.dp, bottom = 12.dp)
-                .border(1.dp, BonyColors.RuleStrong)
+                .appBorder(1.dp, BonyColors.RuleStrong)
                 .background(BonyColors.Surface)
                 .clickable(enabled = false) {}
                 .padding(vertical = 6.dp),
@@ -382,7 +382,7 @@ private fun NameDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 40.dp)
-                .border(1.dp, BonyColors.RuleStrong)
+                .appBorder(1.dp, BonyColors.RuleStrong)
                 .background(BonyColors.Surface)
                 .clickable(enabled = false) {}
                 .padding(16.dp),
@@ -414,7 +414,7 @@ private fun NameDialog(
                         color = if (name.isNotBlank()) BonyColors.Accent else BonyColors.TextMute,
                     ),
                     modifier = Modifier
-                        .border(1.dp, if (name.isNotBlank()) BonyColors.AccentDim else BonyColors.Rule)
+                        .appBorder(1.dp, if (name.isNotBlank()) BonyColors.AccentDim else BonyColors.Rule)
                         .clickable(enabled = name.isNotBlank()) { onConfirm(name) }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                 )
@@ -610,7 +610,7 @@ private fun PopupOverlay(onDismiss: () -> Unit, content: @Composable androidx.co
     ) {
         Column(
             modifier = Modifier
-                .border(1.dp, BonyColors.RuleStrong)
+                .appBorder(1.dp, BonyColors.RuleStrong)
                 .background(BonyColors.Surface)
                 .clickable(enabled = false) {}
                 .padding(vertical = 6.dp),

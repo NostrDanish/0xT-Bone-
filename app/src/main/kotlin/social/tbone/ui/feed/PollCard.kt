@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,6 +29,7 @@ import social.tbone.nostr.Event
 import social.tbone.nostr.Nip88
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import social.tbone.ui.theme.appCornerShape
 
 /** Fixed bar height for poll results — stable, no measurement needed. */
 private val RESULT_BAR_HEIGHT = 8.dp
@@ -58,11 +61,13 @@ fun PollCard(
     val showResults = hasVoted || isEnded
     val total = totalVotes.coerceAtLeast(0)
 
+    val pollShape = appCornerShape(MaterialTheme.shapes.medium, RectangleShape)
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, BonyColors.Rule)
-            .background(BonyColors.SurfaceAlt),
+            .clip(pollShape)
+            .border(1.dp, BonyColors.Rule, pollShape)
+            .background(BonyColors.SurfaceAlt, pollShape),
     ) {
         if (showResults) {
             options.forEachIndexed { index, option ->
@@ -110,10 +115,12 @@ fun PollCard(
                 }
                 if (selected.isNotEmpty()) {
                     PollDivider()
+                    val voteShape = appCornerShape(MaterialTheme.shapes.small, RectangleShape)
                     Box(
                         modifier = Modifier
                             .padding(12.dp)
-                            .border(1.dp, BonyColors.Accent, RectangleShape)
+                            .clip(voteShape)
+                            .border(1.dp, BonyColors.Accent, voteShape)
                             .clickable { onVote(selected.toList()) }
                             .padding(horizontal = 14.dp, vertical = 6.dp),
                     ) {

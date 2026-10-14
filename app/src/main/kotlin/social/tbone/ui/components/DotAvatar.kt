@@ -2,10 +2,12 @@ package social.tbone.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -18,7 +20,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import social.tbone.nostr.identity.Phrase
 import social.tbone.ui.theme.BonyColors
-import social.tbone.ui.theme.JetBrainsMono
+import social.tbone.ui.theme.BonyType
+import social.tbone.ui.theme.appCornerShape
 
 /**
  * 4×4 deterministic dot-grid avatar.
@@ -39,10 +42,12 @@ fun DotAvatar(
         (displayName?.firstOrNull() ?: pubkeyHex.firstOrNull())?.uppercaseChar()?.toString() ?: "?"
     }
 
+    val shape = appCornerShape(MaterialTheme.shapes.small)
     Box(
         modifier = modifier
             .size(size)
-            .border(1.dp, BonyColors.Rule),
+            .clip(shape)
+            .border(1.dp, BonyColors.Rule, shape),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -65,7 +70,7 @@ fun DotAvatar(
         Text(
             text = label,
             color = BonyColors.Text,
-            fontFamily = JetBrainsMono,
+            fontFamily = BonyType.body.fontFamily,
             fontSize = (size.value * 0.38f).sp,
             lineHeight = (size.value * 0.38f).sp,
         )

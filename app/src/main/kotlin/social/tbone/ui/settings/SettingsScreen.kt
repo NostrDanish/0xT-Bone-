@@ -1,5 +1,6 @@
 package social.tbone.ui.settings
 
+import social.tbone.ui.theme.appBorder
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -26,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -43,6 +45,7 @@ import social.tbone.settings.ThemeMode
 import social.tbone.settings.UiTheme
 import dev.youniversal.theme.YouniversalBackgroundStyle
 import dev.youniversal.theme.YouniversalContrast
+import dev.youniversal.theme.YouniversalFontOption
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.MaterialTheme
 import social.tbone.ui.theme.ThemeViewModel
@@ -51,6 +54,7 @@ import social.tbone.ui.components.SectionHeader
 import social.tbone.ui.onboarding.BonyButton
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import social.tbone.ui.theme.appCornerShape
 import social.tbone.ui.theme.colorToHex
 import social.tbone.ui.theme.parseHexColor
 import androidx.compose.runtime.remember
@@ -122,14 +126,16 @@ fun SettingsScreen(
 
         // ── Tor active strip ──────────────────────────────────────────────────
         if (torEnabled) {
+            val torStripShape = appCornerShape(MaterialTheme.shapes.medium, RectangleShape)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(BonyColors.WarnBg)
+                    .clip(torStripShape)
+                    .background(BonyColors.WarnBg, torStripShape)
                     .border(
                         width = 1.dp,
                         color = BonyColors.WarnDim,
-                        shape = RectangleShape,
+                        shape = torStripShape,
                     )
                     .padding(horizontal = 14.dp, vertical = 12.dp),
             ) {
@@ -145,7 +151,7 @@ fun SettingsScreen(
                         Spacer(Modifier.weight(1f))
                         Box(
                             modifier = Modifier
-                                .border(1.dp, BonyColors.WarnDim)
+                                .appBorder(1.dp, BonyColors.WarnDim)
                                 .padding(horizontal = 6.dp, vertical = 2.dp),
                         ) {
                             Text("ON", style = BonyType.tag.copy(color = BonyColors.Warn))
@@ -299,7 +305,7 @@ fun SettingsScreen(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule)
+                            .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule, appCornerShape(MaterialTheme.shapes.small))
                             .clickable { viewModel.setImageLoadMode(mode) }
                             .padding(vertical = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -340,7 +346,7 @@ fun SettingsScreen(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule)
+                            .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule, appCornerShape(MaterialTheme.shapes.small))
                             .clickable { viewModel.setVideoQuality(quality) }
                             .padding(vertical = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -368,7 +374,7 @@ fun SettingsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule)
+                        .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule, appCornerShape(MaterialTheme.shapes.small))
                         .clickable { viewModel.setVideoPlaybackMode(mode) }
                         .padding(horizontal = 10.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -431,7 +437,7 @@ fun SettingsScreen(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule)
+                            .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule, appCornerShape(MaterialTheme.shapes.small))
                             .clickable { viewModel.setAvatarMode(mode) }
                             .padding(vertical = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -486,7 +492,7 @@ fun SettingsScreen(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule)
+                            .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule, appCornerShape(MaterialTheme.shapes.small))
                             .clickable { viewModel.setUiTheme(theme) }
                             .padding(vertical = 10.dp, horizontal = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -544,7 +550,7 @@ fun SettingsScreen(
                         Column(
                             modifier = Modifier
                                 .weight(1f)
-                                .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule)
+                                .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule, appCornerShape(MaterialTheme.shapes.small))
                                 .clickable { viewModel.setThemeMode(mode) }
                                 .padding(vertical = 8.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -602,6 +608,38 @@ fun SettingsScreen(
                     style = BonyType.meta.copy(color = BonyColors.TextMute),
                 )
 
+                // App-wide typeface. Standard is intentionally the Youniversal
+                // default; Soft provides a warmer, rounded sans-serif alternative.
+                Text("app font", style = BonyType.meta.copy(color = BonyColors.TextMute))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    YouniversalFontOption.entries.forEach { option ->
+                        val active = option == youniversalState.fontOption
+                        val shape = appCornerShape(MaterialTheme.shapes.small)
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(shape)
+                                .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule, shape)
+                                .clickable { youniversalState.setFontOption(option) }
+                                .padding(horizontal = 6.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                text = option.label,
+                                style = BonyType.tag.copy(
+                                    color = if (active) BonyColors.Accent else BonyColors.TextMute,
+                                ),
+                                maxLines = 1,
+                            )
+                            Text(
+                                text = option.description,
+                                style = BonyType.metaDim.copy(color = BonyColors.TextMute),
+                                maxLines = 2,
+                            )
+                        }
+                    }
+                }
+
                 // Background
                 Text("background", style = BonyType.meta.copy(color = BonyColors.TextMute))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -610,7 +648,7 @@ fun SettingsScreen(
                         Column(
                             modifier = Modifier
                                 .weight(1f)
-                                .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule)
+                                .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule, appCornerShape(MaterialTheme.shapes.small))
                                 .clickable { youniversalState.setBackgroundStyle(style) }
                                 .padding(vertical = 8.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -633,7 +671,7 @@ fun SettingsScreen(
                         Column(
                             modifier = Modifier
                                 .weight(1f)
-                                .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule)
+                                .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule, appCornerShape(MaterialTheme.shapes.small))
                                 .clickable { youniversalState.setContrast(c) }
                                 .padding(vertical = 8.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -754,8 +792,8 @@ fun SettingsScreen(
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        BonyButton(label = "−", primary = false, onClick = { youniversalState.setFontScale((youniversalState.fontScale - 0.1f).coerceIn(0.7f, 1.8f)) })
-                        BonyButton(label = "+", primary = false, onClick = { youniversalState.setFontScale((youniversalState.fontScale + 0.1f).coerceIn(0.7f, 1.8f)) })
+                        BonyButton(label = "−", primary = false, onClick = { youniversalState.setFontScale((youniversalState.fontScale - 0.1f).coerceIn(0.7f, 2f)) })
+                        BonyButton(label = "+", primary = false, onClick = { youniversalState.setFontScale((youniversalState.fontScale + 0.1f).coerceIn(0.7f, 2f)) })
                     }
                 }
 
@@ -779,7 +817,7 @@ fun SettingsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, BonyColors.Rule)
+                        .appBorder(1.dp, BonyColors.Rule)
                         .clickable { youniversalState.reset() }
                         .padding(vertical = 10.dp),
                     horizontalArrangement = Arrangement.Center,
@@ -1009,7 +1047,7 @@ internal fun BonyToggle(
 
     Box(
         modifier = Modifier
-            .border(1.dp, if (checked && enabled) BonyColors.AccentDim else BonyColors.Rule)
+            .appBorder(1.dp, if (checked && enabled) BonyColors.AccentDim else BonyColors.Rule)
             .then(if (enabled) Modifier.clickable { onCheckedChange(!checked) } else Modifier)
             .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {

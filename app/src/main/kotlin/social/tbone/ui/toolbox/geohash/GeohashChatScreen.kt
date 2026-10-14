@@ -1,7 +1,7 @@
 package social.tbone.ui.toolbox.geohash
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -161,7 +161,7 @@ fun GeohashChatScreen(
             Spacer(Modifier.width(8.dp))
             Box(
                 modifier = Modifier
-                    .border(1.dp, if (text.isNotBlank()) BonyColors.Accent else BonyColors.Rule)
+                    .appBorder(1.dp, if (text.isNotBlank()) BonyColors.Accent else BonyColors.Rule)
                     .then(if (text.isNotBlank()) Modifier.clickable {
                         viewModel.send(text)
                         text = ""
@@ -193,7 +193,7 @@ private fun MessageBubble(m: GeohashMessage) {
             modifier = Modifier
                 .fillMaxWidth(0.85f)
                 .background(if (m.own) BonyColors.AccentBg else BonyColors.SurfaceAlt)
-                .border(1.dp, if (m.own) BonyColors.AccentDim else BonyColors.Rule)
+                .appBorder(1.dp, if (m.own) BonyColors.AccentDim else BonyColors.Rule)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {

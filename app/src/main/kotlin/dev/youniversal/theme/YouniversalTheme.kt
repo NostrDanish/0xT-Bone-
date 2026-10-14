@@ -14,9 +14,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.font.FontFamily
 
-internal val LocalYouniversalEnabled = staticCompositionLocalOf { true }
+internal val LocalYouniversalEnabled = staticCompositionLocalOf { false }
 
 internal val LocalYouniversalBackgroundStyle =
     staticCompositionLocalOf { YouniversalBackgroundStyle.Light }
@@ -95,7 +97,7 @@ public fun YouniversalTheme(
     accentSeed: Color = Color.Unspecified,
     cornerScale: Float = 1f,
     fontScale: Float = 1f,
-    fontFamily: FontFamily? = null,
+    fontFamily: FontFamily? = FontFamily.SansSerif,
     animateTransitions: Boolean = true,
     styleSystemBars: Boolean = true,
     enabled: Boolean = true,
@@ -121,6 +123,18 @@ public fun YouniversalTheme(
 
     val context = LocalContext.current
     val hasCustomSeed = accentSeed != Color.Unspecified
+    val parentDensity = LocalDensity.current
+    val resolvedFontScale = fontScale.coerceIn(0.7f, 2f)
+    // Scale the composition's SP density once, rather than scaling only
+    // MaterialTheme.typography. T-Bone has many explicit BonyType TextStyles;
+    // the density override makes the setting apply to every SP-based text style
+    // throughout the app while leaving dp-sized layouts unchanged.
+    val scaledDensity = remember(parentDensity.density, parentDensity.fontScale, resolvedFontScale) {
+        Density(
+            density = parentDensity.density,
+            fontScale = parentDensity.fontScale * resolvedFontScale,
+        )
+    }
 
     // Material You: wallpaper-derived scheme, Android 12 and up.
     val dynamicScheme: ColorScheme? =
@@ -144,12 +158,15 @@ public fun YouniversalTheme(
     val colorScheme =
         if (animateTransitions) rememberAnimatedColorScheme(targetScheme) else targetScheme
     val shapes = remember(cornerScale) { youniversalShapes(cornerScale) }
-    val typography = remember(fontFamily, fontScale) { youniversalTypography(fontFamily, fontScale) }
+    // SP scaling is supplied by LocalDensity above so legacy app styles and
+    // MaterialTheme typography both track the same preference exactly once.
+    val typography = remember(fontFamily) { youniversalTypography(fontFamily, fontScale = 1f) }
 
     CompositionLocalProvider(
         LocalYouniversalEnabled provides true,
         LocalYouniversalBackgroundStyle provides resolvedStyle,
         LocalYouniversalExtendedColors provides extendedColors,
+        LocalDensity provides scaledDensity,
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
@@ -182,7 +199,7 @@ public fun YouniversalTheme(
         accentSeed = state.accentSeed,
         cornerScale = state.cornerScale,
         fontScale = state.fontScale,
-        fontFamily = state.fontFamily,
+        fontFamily = state.fontOption.fontFamily,
         animateTransitions = state.animateTransitions,
         enabled = state.enabled,
         fallback = fallback,

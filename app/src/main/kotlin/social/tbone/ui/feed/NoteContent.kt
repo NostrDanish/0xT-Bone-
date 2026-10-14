@@ -4,15 +4,20 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,9 +33,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.media3.common.VideoSize
+import androidx.media3.ui.PlayerView
+import android.view.LayoutInflater
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
+import social.tbone.R
 import social.tbone.nostr.Nip19
 import social.tbone.nostr.ProfileContent
 import social.tbone.settings.ImageLoadMode
@@ -45,6 +54,8 @@ import social.tbone.ui.media.VideoViewerDialog
 import social.tbone.ui.media.rememberVideoPlayer
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import social.tbone.ui.theme.appCornerShape
+import dev.youniversal.theme.YouniversalTheme
 
 private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp", "bmp")
 private val VIDEO_EXTENSIONS = setOf("mp4", "webm", "mov", "m4v", "mkv", "m3u8", "ogv", "3gp")
@@ -215,27 +226,68 @@ private fun InlineVideo(
     onOpen: () -> Unit,
 ) {
     val player = rememberVideoPlayer(url, quality, playWhenReady)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(INLINE_IMAGE_HEIGHT)
-            .border(1.dp, BonyColors.Rule)
-            .background(Color.Black),
+    val videoAspectRatio = remember(player) { mutableStateOf<Float?>(null) }
+
+    // PlayerView reports the actual display dimensions after track selection.
+    // Using the ratio lets Youniversal remove only the unused letterbox area;
+    // the visible video is still fitted into the same 260dp × screen-width box.
+    DisposableEffect(player) {
+        fun updateRatio(size: VideoSize) {
+            val ratio = videoDisplayAspectRatio(
+                width = size.width,
+                height = size.height,
+                pixelWidthHeightRatio = size.pixelWidthHeightRatio,
+                rotationDegrees = size.unappliedRotationDegrees,
+            ) ?: return
+            videoAspectRatio.value = ratio
+        }
+
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onVideoSizeChanged(videoSize: VideoSize) = updateRatio(videoSize)
+        }
+        player.addListener(listener)
+        updateRatio(player.videoSize)
+        onDispose { player.removeListener(listener) }
+    }
+
+    val youniversal = YouniversalTheme.enabled
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
     ) {
-        AndroidView(
-            factory = { context ->
-                androidx.media3.ui.PlayerView(context).apply {
-                    this.player = player
-                    useController = false
-                    setShutterBackgroundColor(android.graphics.Color.BLACK)
-                }
-            },
-            update = { it.player = player },
-            modifier = Modifier.fillMaxSize(),
-        )
-        // Keep the image-like gesture: the inline surface is a preview, while
-        // all real controls are in the full-screen T-Bone player.
-        Box(Modifier.fillMaxSize().clickable(onClick = onOpen))
+        val fittedSize = if (youniversal) {
+            videoAspectRatio.value?.let { fitMediaFrame(maxWidth, INLINE_IMAGE_HEIGHT, it) }
+        } else {
+            null
+        }
+        val shape = appCornerShape(MaterialTheme.shapes.medium)
+        val frameModifier = if (fittedSize != null) {
+            Modifier.width(fittedSize.width).height(fittedSize.height)
+        } else {
+            Modifier.fillMaxWidth().height(INLINE_IMAGE_HEIGHT)
+        }
+        Box(
+            modifier = frameModifier
+                .clip(shape)
+                .background(Color.Black, shape)
+                .border(1.dp, BonyColors.Rule, shape),
+        ) {
+            AndroidView(
+                factory = { context ->
+                    (LayoutInflater.from(context)
+                        .inflate(R.layout.inline_video_player_view, null, false) as PlayerView).apply {
+                        this.player = player
+                        useController = false
+                        setShutterBackgroundColor(android.graphics.Color.BLACK)
+                    }
+                },
+                update = { it.player = player },
+                modifier = Modifier.fillMaxSize(),
+            )
+            // Keep the image-like gesture: the inline surface is a preview, while
+            // all real controls are in the full-screen T-Bone player.
+            Box(Modifier.fillMaxSize().clickable(onClick = onOpen))
+        }
     }
 }
 
@@ -243,34 +295,60 @@ private fun InlineVideo(
 @Composable
 private fun VideoThumbnail(url: String, onOpen: () -> Unit) {
     val context = LocalContext.current
-    SubcomposeAsyncImage(
-        model = remember(url) {
-            ImageRequest.Builder(context)
-                .data(url)
-                .size(LOW_QUALITY_MAX_SIZE)
-                .crossfade(false)
-                .build()
-        },
-        contentDescription = "video thumbnail",
-        contentScale = ContentScale.Crop,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(INLINE_IMAGE_HEIGHT)
-            .border(1.dp, BonyColors.Rule)
-            .background(BonyColors.SurfaceAlt)
-            .clickable(onClick = onOpen),
-        loading = { MediaStripes(Modifier.fillMaxSize()) },
-        error = {
-            MediaStripes(Modifier.fillMaxSize())
-            Text(
-                text = "[ video · tap to play ]",
-                style = BonyType.meta.copy(color = BonyColors.TextMute),
-                modifier = Modifier
-                    .background(BonyColors.SurfaceAlt.copy(alpha = 0.85f))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            )
-        },
-    )
+    val youniversal = YouniversalTheme.enabled
+    var aspectRatio by remember(url) { mutableStateOf<Float?>(null) }
+    val request = remember(url) {
+        ImageRequest.Builder(context)
+            .data(url)
+            .size(LOW_QUALITY_MAX_SIZE)
+            .crossfade(false)
+            .build()
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
+    ) {
+        val fittedSize = if (youniversal) {
+            aspectRatio?.let { fitMediaFrame(maxWidth, INLINE_IMAGE_HEIGHT, it) }
+        } else {
+            null
+        }
+        val shape = appCornerShape(MaterialTheme.shapes.medium)
+        val frameModifier = if (fittedSize != null) {
+            Modifier.width(fittedSize.width).height(fittedSize.height)
+        } else {
+            Modifier.fillMaxWidth().height(INLINE_IMAGE_HEIGHT)
+        }
+        SubcomposeAsyncImage(
+            model = request,
+            contentDescription = "video thumbnail",
+            contentScale = if (youniversal) ContentScale.Fit else ContentScale.Crop,
+            modifier = frameModifier
+                .clip(shape)
+                .background(BonyColors.SurfaceAlt, shape)
+                .border(1.dp, BonyColors.Rule, shape)
+                .clickable(onClick = onOpen),
+            onSuccess = { result ->
+                val size = result.painter.intrinsicSize
+                if (size.width > 0f && size.height > 0f) {
+                    val ratio = size.width / size.height
+                    if (ratio.isFinite() && ratio > 0f) aspectRatio = ratio
+                }
+            },
+            loading = { MediaStripes(Modifier.fillMaxSize()) },
+            error = {
+                MediaStripes(Modifier.fillMaxSize())
+                Text(
+                    text = "[ video · tap to play ]",
+                    style = BonyType.meta.copy(color = BonyColors.TextMute),
+                    modifier = Modifier
+                        .background(BonyColors.SurfaceAlt.copy(alpha = 0.85f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            },
+        )
+    }
 }
 
 /**
@@ -281,6 +359,8 @@ private fun VideoThumbnail(url: String, onOpen: () -> Unit) {
 @Composable
 private fun InlineImage(url: String, lowQuality: Boolean, onOpen: () -> Unit) {
     val context = LocalContext.current
+    val youniversal = YouniversalTheme.enabled
+    var aspectRatio by remember(url, lowQuality) { mutableStateOf<Float?>(null) }
     val request = remember(url, lowQuality) {
         ImageRequest.Builder(context)
             .data(url)
@@ -297,41 +377,68 @@ private fun InlineImage(url: String, lowQuality: Boolean, onOpen: () -> Unit) {
             .build()
     }
 
-    SubcomposeAsyncImage(
-        model = request,
-        contentDescription = "image",
-        contentScale = ContentScale.Fit,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(INLINE_IMAGE_HEIGHT)
-            .border(1.dp, BonyColors.Rule)
-            .background(BonyColors.SurfaceAlt)
-            .clickable(onClick = onOpen),
-        loading = { MediaStripes(Modifier.fillMaxSize()) },
-        error = {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                MediaStripes(Modifier.fillMaxSize())
-                Text(
-                    text = "[ image · tap to expand ]",
-                    style = BonyType.meta.copy(color = BonyColors.TextMute),
-                    modifier = Modifier
-                        .background(BonyColors.SurfaceAlt.copy(alpha = 0.85f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-            }
-        },
-    )
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
+    ) {
+        // Fit to the same bounds as before, then size the rounded surface to
+        // the rendered image itself. That removes empty letterbox area without
+        // enlarging, shrinking, or cropping the image content.
+        val fittedSize = if (youniversal) {
+            aspectRatio?.let { fitMediaFrame(maxWidth, INLINE_IMAGE_HEIGHT, it) }
+        } else {
+            null
+        }
+        val shape = appCornerShape(MaterialTheme.shapes.medium)
+        val frameModifier = if (fittedSize != null) {
+            Modifier.width(fittedSize.width).height(fittedSize.height)
+        } else {
+            Modifier.fillMaxWidth().height(INLINE_IMAGE_HEIGHT)
+        }
+        SubcomposeAsyncImage(
+            model = request,
+            contentDescription = "image",
+            contentScale = ContentScale.Fit,
+            modifier = frameModifier
+                .clip(shape)
+                .background(BonyColors.SurfaceAlt, shape)
+                .border(1.dp, BonyColors.Rule, shape)
+                .clickable(onClick = onOpen),
+            onSuccess = { result ->
+                val size = result.painter.intrinsicSize
+                if (size.width > 0f && size.height > 0f) {
+                    val ratio = size.width / size.height
+                    if (ratio.isFinite() && ratio > 0f) aspectRatio = ratio
+                }
+            },
+            loading = { MediaStripes(Modifier.fillMaxSize()) },
+            error = {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    MediaStripes(Modifier.fillMaxSize())
+                    Text(
+                        text = "[ image · tap to expand ]",
+                        style = BonyType.meta.copy(color = BonyColors.TextMute),
+                        modifier = Modifier
+                            .background(BonyColors.SurfaceAlt.copy(alpha = 0.85f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            },
+        )
+    }
 }
 
 /** Diagonal stripe placeholder matching the design system media block spec. */
 @Composable
 private fun MediaPlaceholder(label: String, url: String, onOpen: () -> Unit) {
+    val shape = appCornerShape(MaterialTheme.shapes.medium)
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(PLACEHOLDER_HEIGHT)
-            .border(1.dp, BonyColors.Rule)
-            .background(BonyColors.SurfaceAlt)
+            .clip(shape)
+            .background(BonyColors.SurfaceAlt, shape)
+            .border(1.dp, BonyColors.Rule, shape)
             .clickable(onClick = onOpen),
         contentAlignment = Alignment.Center,
     ) {
@@ -369,4 +476,45 @@ private fun MediaStripes(modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+/** The content dimensions of a media item fitted into the existing preview bounds. */
+internal data class MediaFrameSize(val width: androidx.compose.ui.unit.Dp, val height: androidx.compose.ui.unit.Dp)
+
+/** Returns the displayed aspect ratio after pixel aspect and video rotation are applied. */
+internal fun videoDisplayAspectRatio(
+    width: Int,
+    height: Int,
+    pixelWidthHeightRatio: Float,
+    rotationDegrees: Int,
+): Float? {
+    if (width <= 0 || height <= 0 || !pixelWidthHeightRatio.isFinite() || pixelWidthHeightRatio <= 0f) {
+        return null
+    }
+    val encodedRatio = width * pixelWidthHeightRatio / height
+    if (!encodedRatio.isFinite() || encodedRatio <= 0f) return null
+    val displayedRatio = if (rotationDegrees % 180 != 0) 1f / encodedRatio else encodedRatio
+    return displayedRatio.takeIf { it.isFinite() && it > 0f }
+}
+
+/**
+ * Returns the actual size occupied by media with [aspectRatio] when fitted
+ * inside the established full-width × max-height preview. This preserves the
+ * old rendered content size while allowing Youniversal to remove empty space
+ * around portrait/landscape media.
+ */
+internal fun fitMediaFrame(
+    maxWidth: androidx.compose.ui.unit.Dp,
+    maxHeight: androidx.compose.ui.unit.Dp,
+    aspectRatio: Float,
+): MediaFrameSize? {
+    val width = maxWidth.value
+    val height = maxHeight.value
+    if (!width.isFinite() || !height.isFinite() || width <= 0f || height <= 0f ||
+        !aspectRatio.isFinite() || aspectRatio <= 0f
+    ) return null
+
+    val fittedWidth = minOf(width, height * aspectRatio)
+    val fittedHeight = minOf(height, width / aspectRatio)
+    return MediaFrameSize(fittedWidth.dp, fittedHeight.dp)
 }

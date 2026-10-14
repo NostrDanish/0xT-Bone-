@@ -14,6 +14,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import social.tbone.Tunables
@@ -27,6 +28,40 @@ import social.tbone.nostr.relay.RelayPool
 import javax.inject.Inject
 import javax.inject.Singleton
 import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * Builds the callback request required by NIP-57 Appendix B. In particular,
+ * the bech32 `lnurl` tag must also be sent as the callback's `lnurl` query
+ * parameter; some LNURL services reject requests that only include it inside
+ * the signed zap event.
+ */
+internal fun buildNip57InvoiceCallbackUrl(
+    callback: String,
+    amountMsats: Long,
+    zapRequest: Event,
+): HttpUrl {
+    require(amountMsats > 0) { "zap amount must be positive" }
+    val base = callback.toHttpUrlOrNull() ?: error("invalid Lightning callback")
+    require(base.scheme == "https") { "Lightning callback must use HTTPS" }
+    val lnurl = zapRequest.parsedTags
+        .singleOrNull { it.name == "lnurl" }
+        ?.value()
+        ?: error("zap request must contain exactly one lnurl tag")
+
+    val zapJson = Json.encodeToString(Event.serializer(), zapRequest)
+    return base.newBuilder()
+        // Do not let stale callback parameters shadow the exact values bound
+        // into this zap request. Preserve unrelated service tokens/parameters.
+        .removeAllQueryParameters("amount")
+        .removeAllQueryParameters("comment")
+        .removeAllQueryParameters("nostr")
+        .removeAllQueryParameters("lnurl")
+        .addQueryParameter("amount", amountMsats.toString())
+        .addQueryParameter("comment", "")
+        .addQueryParameter("nostr", zapJson)
+        .addQueryParameter("lnurl", lnurl)
+        .build()
+}
 
 /**
  * NIP-57 zap flow backed by NWC. Every step is checked before the next one:
@@ -206,15 +241,11 @@ class ZapService @Inject constructor(
         zapRequest: Event,
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val base = callback.toHttpUrlOrNull() ?: error("invalid Lightning callback")
-            require(base.scheme == "https") { "Lightning callback must use HTTPS" }
-            val url = base.newBuilder()
-                .addQueryParameter("amount", amountMsats.toString())
-                // Amethyst sends comment= even for an empty message; some
-                // LNURL servers require the parameter to be present.
-                .addQueryParameter("comment", "")
-                .addQueryParameter("nostr", Json.encodeToString(Event.serializer(), zapRequest))
-                .build()
+            val url = buildNip57InvoiceCallbackUrl(
+                callback = callback,
+                amountMsats = amountMsats,
+                zapRequest = zapRequest,
+            )
             val body = ImageClientProvider.client.newCall(Request.Builder().url(url).get().build())
                 .execute().use { response ->
                     require(response.isSuccessful) { "invoice request failed (${response.code})" }

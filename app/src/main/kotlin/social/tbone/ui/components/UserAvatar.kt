@@ -2,6 +2,7 @@ package social.tbone.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
@@ -9,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -21,6 +23,7 @@ import social.tbone.settings.AvatarMode
 import social.tbone.ui.media.LocalAnimatedAvatars
 import social.tbone.ui.media.LocalAvatarMode
 import social.tbone.ui.theme.BonyColors
+import social.tbone.ui.theme.appCornerShape
 
 /** Decode cap for LOW avatars — small, fast, light. */
 private const val AVATAR_LOW_SIZE = 64
@@ -84,11 +87,13 @@ fun UserAvatar(
             .build()
     }
 
+    val shape = appCornerShape(MaterialTheme.shapes.small)
     Box(
         modifier = modifier
             .size(size)
-            .border(1.dp, BonyColors.Rule)
-            .background(BonyColors.SurfaceAlt),
+            .clip(shape)
+            .border(1.dp, BonyColors.Rule, shape)
+            .background(BonyColors.SurfaceAlt, shape),
     ) {
         SubcomposeAsyncImage(
             model = request,

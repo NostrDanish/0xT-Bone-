@@ -1,7 +1,7 @@
 package social.tbone.ui.settings
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -101,7 +101,7 @@ internal fun ReactionSettingsSection(viewModel: SettingsViewModel) {
                     emojis.forEach { emoji ->
                         Row(
                             modifier = Modifier
-                                .border(1.dp, BonyColors.Rule)
+                                .appBorder(1.dp, BonyColors.Rule)
                                 .clickable { viewModel.removeReactionEmoji(emoji) }
                                 .padding(start = 8.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -142,7 +142,7 @@ internal fun ReactionSettingsSection(viewModel: SettingsViewModel) {
                         color = if (canAdd) BonyColors.Accent else BonyColors.TextMute,
                     ),
                     modifier = Modifier
-                        .border(1.dp, if (canAdd) BonyColors.AccentDim else BonyColors.Rule)
+                        .appBorder(1.dp, if (canAdd) BonyColors.AccentDim else BonyColors.Rule)
                         .clickable(enabled = canAdd) {
                             viewModel.addReactionEmojis(extractEmojis(input))
                             input = ""

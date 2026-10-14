@@ -1,9 +1,11 @@
 package social.tbone.ui.onboarding
 
+import social.tbone.ui.theme.appBorder
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import social.tbone.ui.theme.appCornerShape
 
 @Composable
 fun OnboardingScreen(
@@ -113,7 +116,7 @@ private fun MethodPicker(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, BonyColors.Rule)
+            .appBorder(1.dp, BonyColors.Rule)
             .background(BonyColors.Surface)
             .padding(14.dp),
     ) {
@@ -188,7 +191,7 @@ private fun SignerCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, if (recommended) BonyColors.Accent else BonyColors.Rule)
+            .appBorder(1.dp, if (recommended) BonyColors.Accent else BonyColors.Rule)
             .background(if (recommended) BonyColors.AccentBg else BonyColors.Surface)
             .clickable { onClick() },
     ) {
@@ -246,7 +249,7 @@ private fun AmberHandoffView() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, BonyColors.Accent)
+            .appBorder(1.dp, BonyColors.Accent)
             .background(BonyColors.AccentBg)
             .padding(16.dp),
     ) {
@@ -386,9 +389,11 @@ private fun NsecBunkerForm(
 
 @Composable
 fun BonyTag(label: String, color: androidx.compose.ui.graphics.Color) {
+    val shape = appCornerShape()
     Box(
         modifier = Modifier
-            .border(1.dp, color.copy(alpha = 0.4f))
+            .clip(shape)
+            .border(1.dp, color.copy(alpha = 0.4f), shape)
             .padding(horizontal = 6.dp, vertical = 2.dp),
     ) {
         Text(label, style = BonyType.tag.copy(color = color))
@@ -407,11 +412,13 @@ fun BonyButton(
     val fg = if (primary) BonyColors.Bg else BonyColors.Text
     val borderColor = if (primary) BonyColors.Accent else BonyColors.Rule
     val disabledAlpha = if (enabled) 1f else 0.4f
+    val shape = appCornerShape()
 
     Box(
         modifier = modifier
-            .border(1.dp, borderColor.copy(alpha = disabledAlpha))
-            .background(bg.copy(alpha = disabledAlpha))
+            .clip(shape)
+            .border(1.dp, borderColor.copy(alpha = disabledAlpha), shape)
+            .background(bg.copy(alpha = disabledAlpha), shape)
             .then(if (enabled) Modifier.clickable { onClick() } else Modifier)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,

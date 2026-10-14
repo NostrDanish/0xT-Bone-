@@ -1,5 +1,6 @@
 package social.tbone.ui.media
 
+import social.tbone.ui.theme.appBorder
 import android.Manifest
 import android.content.ContentValues
 import android.content.pm.PackageManager
@@ -10,7 +11,6 @@ import android.view.ViewGroup
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -159,7 +159,7 @@ fun VideoViewer(
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .border(1.dp, BonyColors.AccentDim)
+                    .appBorder(1.dp, BonyColors.AccentDim)
                     .background(BonyColors.Surface)
                     .clickable { confirmText = null }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -231,7 +231,7 @@ fun rememberVideoPlayer(
 private fun VideoViewerButton(label: String, description: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .border(1.dp, BonyColors.RuleStrong)
+            .appBorder(1.dp, BonyColors.RuleStrong)
             .background(BonyColors.Surface.copy(alpha = 0.9f))
             .semantics { contentDescription = description }
             .clickable(onClick = onClick)

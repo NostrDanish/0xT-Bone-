@@ -1,9 +1,9 @@
 package social.tbone.ui.settings
 
+import social.tbone.ui.theme.appBorder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -268,7 +268,7 @@ fun OfflineListScreen(
                                 text = "ADD",
                                 style = BonyType.tag.copy(color = if (canAdd) BonyColors.Accent else BonyColors.TextMute),
                                 modifier = Modifier
-                                    .border(1.dp, if (canAdd) BonyColors.AccentDim else BonyColors.Rule)
+                                    .appBorder(1.dp, if (canAdd) BonyColors.AccentDim else BonyColors.Rule)
                                     .clickable(enabled = canAdd) {
                                         viewModel.addByInput(addInput) { ok -> if (ok) addInput = "" }
                                     }
@@ -440,7 +440,7 @@ private fun ListSection(title: String, content: @Composable () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 8.dp)
-            .border(1.dp, BonyColors.Rule)
+            .appBorder(1.dp, BonyColors.Rule)
             .background(BonyColors.Surface)
             .padding(12.dp),
     ) {

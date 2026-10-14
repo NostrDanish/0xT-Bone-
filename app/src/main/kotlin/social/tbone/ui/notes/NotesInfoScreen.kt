@@ -1,7 +1,7 @@
 package social.tbone.ui.notes
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -136,7 +136,7 @@ private fun InfoCard(title: String, content: @Composable ColumnScope.() -> Unit)
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 12.dp)
-            .border(1.dp, BonyColors.Rule)
+            .appBorder(1.dp, BonyColors.Rule)
             .background(BonyColors.Surface)
             .padding(14.dp),
     ) {

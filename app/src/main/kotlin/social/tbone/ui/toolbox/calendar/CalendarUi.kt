@@ -1,7 +1,7 @@
 package social.tbone.ui.toolbox.calendar
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -164,7 +164,7 @@ private fun DayCell(
         modifier = modifier
             .then(if (date != null) Modifier.clickable(onClick = onClick) else Modifier)
             // Selection = thin line around the ENTIRE square.
-            .then(if (isSelected) Modifier.border(1.dp, BonyColors.Accent) else Modifier),
+            .then(if (isSelected) Modifier.appBorder(1.dp, BonyColors.Accent) else Modifier),
     ) {
         if (date != null) {
             Column(

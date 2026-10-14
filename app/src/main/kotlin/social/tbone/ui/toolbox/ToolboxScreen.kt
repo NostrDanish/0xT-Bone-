@@ -1,7 +1,7 @@
 package social.tbone.ui.toolbox
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
@@ -143,7 +143,7 @@ fun ToolboxScreen(
             )
             Box(
                 modifier = Modifier
-                    .border(1.dp, BonyColors.Rule)
+                    .appBorder(1.dp, BonyColors.Rule)
                     .clickable(onClick = onToolboxSettings)
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
@@ -257,7 +257,7 @@ internal fun ToolRow(icon: ImageVector, title: String, subtitle: String, onClick
         Box(
             modifier = Modifier
                 .size(40.dp)
-                .border(1.dp, BonyColors.Rule)
+                .appBorder(1.dp, BonyColors.Rule)
                 .background(BonyColors.SurfaceAlt),
             contentAlignment = Alignment.Center,
         ) {

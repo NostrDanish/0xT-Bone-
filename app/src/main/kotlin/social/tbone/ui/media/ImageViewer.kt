@@ -1,5 +1,6 @@
 package social.tbone.ui.media
 
+import social.tbone.ui.theme.appBorder
 import android.Manifest
 import android.content.ContentValues
 import android.content.pm.PackageManager
@@ -9,7 +10,6 @@ import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -179,7 +179,7 @@ fun ImageViewer(
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .border(1.dp, BonyColors.AccentDim)
+                    .appBorder(1.dp, BonyColors.AccentDim)
                     .background(BonyColors.Surface)
                     .clickable { confirmText = null }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -201,7 +201,7 @@ private fun ViewerButton(
 ) {
     Box(
         modifier = Modifier
-            .border(1.dp, BonyColors.RuleStrong)
+            .appBorder(1.dp, BonyColors.RuleStrong)
             .background(BonyColors.Surface.copy(alpha = 0.9f))
             .semantics { this.contentDescription = contentDescription }
             .clickable(onClick = onClick)

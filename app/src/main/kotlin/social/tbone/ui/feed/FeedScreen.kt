@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -58,6 +60,7 @@ import social.tbone.ui.components.BonyBottomBar
 import social.tbone.ui.components.BottomTab
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import social.tbone.ui.theme.appCornerShape
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -299,12 +302,14 @@ private fun BrightnessPopup(onDismiss: () -> Unit) {
             .clickable(onClick = onDismiss),
     ) {
         // Slider card
+        val brightnessCardShape = appCornerShape(MaterialTheme.shapes.medium)
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = 8.dp)
-                .border(1.dp, BonyColors.RuleStrong)
-                .background(BonyColors.Surface)
+                .clip(brightnessCardShape)
+                .border(1.dp, BonyColors.RuleStrong, brightnessCardShape)
+                .background(BonyColors.Surface, brightnessCardShape)
                 .clickable(enabled = false) {} // swallow taps on the card
                 .padding(horizontal = 18.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -422,9 +427,11 @@ private fun TorPill(torEnabled: Boolean, connected: Boolean, onClick: () -> Unit
     else
         Triple("○ OFFLINE", BonyColors.Danger, BonyColors.Danger)
 
+    val pillShape = appCornerShape(MaterialTheme.shapes.extraLarge)
     Box(
         modifier = Modifier
-            .border(1.dp, borderColor)
+            .clip(pillShape)
+            .border(1.dp, borderColor, pillShape)
             .clickable { onClick() }
             .padding(horizontal = 6.dp, vertical = 2.dp),
     ) {
@@ -451,14 +458,16 @@ private fun FeedTabStrip(
             FeedTab.values().forEach { tab ->
                 val active = currentFeed == tab
                 val label = if (tab == FeedTab.HOME) "FOLLOWING" else "GLOBAL"
+                val tabShape = appCornerShape(MaterialTheme.shapes.small, RectangleShape)
                 Column(
                     modifier = Modifier
                         .weight(1f)
+                        .clip(tabShape)
                         .clickable { onSwitch(tab) }
-                        .background(BonyColors.Surface)
+                        .background(BonyColors.Surface, tabShape)
                         .then(if (active) Modifier.border(
                             width = 1.dp, color = BonyColors.Accent,
-                            shape = RectangleShape,
+                            shape = tabShape,
                         ) else Modifier)
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,

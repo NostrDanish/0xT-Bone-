@@ -1,5 +1,6 @@
 package social.tbone.ui.toolbox.geohash
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -152,7 +153,7 @@ fun GeohashChannelScreen(
             .align(Alignment.BottomEnd)
             .navigationBarsPadding()
             .padding(end = 16.dp, bottom = 12.dp)
-            .border(1.dp, BonyColors.AccentDim)
+            .appBorder(1.dp, BonyColors.AccentDim)
             .background(BonyColors.Surface)
             .clickable { showAdd = true }
             .padding(horizontal = 18.dp, vertical = 12.dp),
@@ -184,7 +185,7 @@ fun GeohashChannelScreen(
         ) {
             Column(
                 modifier = Modifier
-                    .border(1.dp, BonyColors.RuleStrong)
+                    .appBorder(1.dp, BonyColors.RuleStrong)
                     .background(BonyColors.Surface)
                     .clickable(enabled = false) {}
                     .padding(vertical = 6.dp),
@@ -286,7 +287,7 @@ private fun AddChannelDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 40.dp)
-                .border(1.dp, BonyColors.RuleStrong)
+                .appBorder(1.dp, BonyColors.RuleStrong)
                 .background(BonyColors.Surface)
                 .clickable(enabled = false) {}
                 .padding(16.dp),
@@ -319,7 +320,7 @@ private fun AddChannelDialog(
                         color = if (code.isNotBlank()) BonyColors.Accent else BonyColors.TextMute,
                     ),
                     modifier = Modifier
-                        .border(1.dp, if (code.isNotBlank()) BonyColors.AccentDim else BonyColors.Rule)
+                        .appBorder(1.dp, if (code.isNotBlank()) BonyColors.AccentDim else BonyColors.Rule)
                         .clickable(enabled = code.isNotBlank()) { onAdd(code) }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                 )

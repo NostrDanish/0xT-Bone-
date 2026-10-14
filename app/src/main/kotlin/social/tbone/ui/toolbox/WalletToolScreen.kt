@@ -1,8 +1,8 @@
 package social.tbone.ui.toolbox
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -100,7 +100,7 @@ fun WalletToolScreen(
             }
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().border(1.dp, BonyColors.Rule).padding(12.dp),
+                    modifier = Modifier.fillMaxWidth().appBorder(1.dp, BonyColors.Rule).padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
@@ -115,7 +115,7 @@ fun WalletToolScreen(
             }
             item {
                 Column(
-                    modifier = Modifier.fillMaxWidth().border(1.dp, BonyColors.Rule).padding(12.dp),
+                    modifier = Modifier.fillMaxWidth().appBorder(1.dp, BonyColors.Rule).padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Row(
@@ -218,7 +218,7 @@ fun WalletToolScreen(
             }
             item {
                 Column(
-                    modifier = Modifier.fillMaxWidth().border(1.dp, BonyColors.Rule).padding(12.dp),
+                    modifier = Modifier.fillMaxWidth().appBorder(1.dp, BonyColors.Rule).padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Row(
@@ -355,7 +355,7 @@ fun WalletToolScreen(
             } else {
                 items(notifications, key = { it.id }) { notification ->
                     Column(
-                        modifier = Modifier.fillMaxWidth().border(1.dp, BonyColors.Rule).padding(10.dp),
+                        modifier = Modifier.fillMaxWidth().appBorder(1.dp, BonyColors.Rule).padding(10.dp),
                     ) {
                         Text(
                             "${if (notification.direction == "sent") "↑" else "↓"} ${notification.amountMsats / 1000} sats",

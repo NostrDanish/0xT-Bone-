@@ -3,7 +3,6 @@ package social.tbone.ui.toolbox
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.keyframes
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,7 +27,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -36,6 +34,7 @@ import kotlinx.coroutines.launch
 import social.tbone.ui.lock.PinKeypad
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import social.tbone.ui.theme.appBorder
 import kotlin.math.roundToInt
 
 /**
@@ -117,7 +116,7 @@ fun ToolboxLockScreen(
                     Box(
                         modifier = Modifier
                             .size(12.dp)
-                            .border(1.dp, if (filled) color else BonyColors.Rule, RectangleShape)
+                            .appBorder(1.dp, if (filled) color else BonyColors.Rule)
                             .background(if (filled) color else BonyColors.Bg),
                     )
                 }

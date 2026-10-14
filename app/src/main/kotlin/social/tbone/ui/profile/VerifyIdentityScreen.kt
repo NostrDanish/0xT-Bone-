@@ -1,8 +1,8 @@
 package social.tbone.ui.profile
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -134,7 +134,7 @@ fun VerifyIdentityScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, BonyColors.Accent)
+                        .appBorder(1.dp, BonyColors.Accent)
                         .background(BonyColors.AccentBg)
                         .padding(horizontal = 20.dp, vertical = 16.dp),
                 ) {
@@ -208,7 +208,7 @@ fun VerifyIdentityScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, BonyColors.Rule)
+                            .appBorder(1.dp, BonyColors.Rule)
                             .background(BonyColors.SurfaceAlt)
                             .padding(10.dp),
                     ) {
@@ -244,7 +244,7 @@ fun VerifyIdentityScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, BonyColors.Rule)
+                            .appBorder(1.dp, BonyColors.Rule)
                             .background(BonyColors.SurfaceAlt)
                             .padding(16.dp),
                         contentAlignment = Alignment.Center,

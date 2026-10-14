@@ -1,7 +1,9 @@
 package social.tbone.ui.compose
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -31,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -63,6 +66,7 @@ import social.tbone.ui.components.UserAvatar
 import social.tbone.ui.search.ProfileMatch
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import social.tbone.ui.theme.appCornerShape
 
 /** The token being typed after "@" — letters, digits, _ . - (e.g. "@jack_1"). */
 private val MENTION_TOKEN_REGEX = Regex("""(?:^|\s)@([\p{L}\p{N}_.\-]*)$""")
@@ -210,7 +214,7 @@ fun ComposeScreen(
                 } else {
                     Box(
                         modifier = Modifier
-                            .border(1.dp, if (fieldValue.text.isNotBlank()) BonyColors.Accent else BonyColors.Rule)
+                            .appBorder(1.dp, if (fieldValue.text.isNotBlank()) BonyColors.Accent else BonyColors.Rule)
                             .background(if (fieldValue.text.isNotBlank()) BonyColors.Accent else BonyColors.Bg)
                             .then(if (fieldValue.text.isNotBlank()) Modifier.clickable {
                                 // Mentions (@Name) become nostr:npub1… URIs so the
@@ -318,7 +322,7 @@ fun ComposeScreen(
                             text = "$tag  ✕",
                             style = BonyType.caption.copy(color = BonyColors.Accent),
                             modifier = Modifier
-                                .border(1.dp, BonyColors.AccentDim)
+                                .appBorder(1.dp, BonyColors.AccentDim)
                                 .clickable { tagList = tagList - tag }
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
                         )
@@ -427,7 +431,7 @@ private fun BlossomChip(label: String, selected: Boolean, onClick: () -> Unit) {
         ),
         modifier = Modifier
             .background(if (selected) BonyColors.Accent else BonyColors.Bg)
-            .border(1.dp, if (selected) BonyColors.Accent else BonyColors.Rule)
+            .appBorder(1.dp, if (selected) BonyColors.Accent else BonyColors.Rule)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 5.dp),
     )
@@ -477,11 +481,13 @@ private fun MentionPicker(
     onSelect: (ProfileMatch) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val mentionShape = appCornerShape(MaterialTheme.shapes.medium, RoundedCornerShape(10.dp))
     Column(
         modifier = modifier
-            .shadow(8.dp, RoundedCornerShape(10.dp))
-            .background(BonyColors.Surface)
-            .border(1.dp, BonyColors.AccentDim, RoundedCornerShape(10.dp)),
+            .shadow(8.dp, mentionShape)
+            .clip(mentionShape)
+            .background(BonyColors.Surface, mentionShape)
+            .border(1.dp, BonyColors.AccentDim, mentionShape),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -612,7 +618,7 @@ private fun PollBuilder(
             // Single / multiple choice toggle
             Box(
                 modifier = Modifier
-                    .border(1.dp, if (multiple) BonyColors.Accent else BonyColors.Rule)
+                    .appBorder(1.dp, if (multiple) BonyColors.Accent else BonyColors.Rule)
                     .clickable(onClick = onToggleType)
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
@@ -643,7 +649,7 @@ private fun PollBuilder(
                     onValueChange = { onOptionChange(index, it) },
                     modifier = Modifier
                         .weight(1f)
-                        .border(1.dp, BonyColors.Rule)
+                        .appBorder(1.dp, BonyColors.Rule)
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                     textStyle = BonyType.bodyDim.copy(color = BonyColors.Text),
                     cursorBrush = SolidColor(BonyColors.Accent),

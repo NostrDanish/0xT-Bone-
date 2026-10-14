@@ -1,8 +1,8 @@
 package social.tbone.ui.toolbox.calendar
 
+import social.tbone.ui.theme.appBorder
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,7 +63,7 @@ fun MonthDayPicker(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 28.dp)
-                .border(1.dp, BonyColors.RuleStrong)
+                .appBorder(1.dp, BonyColors.RuleStrong)
                 .background(BonyColors.Surface)
                 .clickable(enabled = false) {}
                 .padding(16.dp),
@@ -102,7 +102,7 @@ fun MonthDayPicker(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .weight(1f)
-                        .border(1.dp, BonyColors.Rule)
+                        .appBorder(1.dp, BonyColors.Rule)
                         .clickable { showYearList = true }
                         .padding(vertical = 8.dp),
                 )
@@ -157,7 +157,7 @@ fun MonthDayPicker(
                     text = "ok",
                     style = BonyType.tag.copy(color = BonyColors.Accent),
                     modifier = Modifier
-                        .border(1.dp, BonyColors.AccentDim)
+                        .appBorder(1.dp, BonyColors.AccentDim)
                         .clickable { onSelect(selected) }
                         .padding(horizontal = 18.dp, vertical = 10.dp),
                 )
@@ -210,7 +210,7 @@ private fun YearListOverlay(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 56.dp)
-                .border(1.dp, BonyColors.RuleStrong)
+                .appBorder(1.dp, BonyColors.RuleStrong)
                 .background(BonyColors.Surface)
                 .clickable(enabled = false) {}
                 .padding(vertical = 12.dp),

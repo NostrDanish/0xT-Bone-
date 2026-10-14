@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,7 +51,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,6 +68,7 @@ import social.tbone.ui.components.UserAvatar
 import social.tbone.ui.feed.QuotedNoteCard
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import social.tbone.ui.theme.appBorder
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -250,7 +249,7 @@ private fun LoadMoreBar(
                 text = "load older",
                 style = BonyType.tag.copy(color = BonyColors.Accent),
                 modifier = Modifier
-                    .border(1.dp, BonyColors.AccentDim, RectangleShape)
+                    .appBorder(1.dp, BonyColors.AccentDim)
                     .clickable(onClick = onLoadMore)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             )
@@ -416,7 +415,7 @@ private fun SummaryStat(
         modifier = Modifier
             .clickable(onClick = onClick)
             .then(
-                if (active) Modifier.border(1.dp, BonyColors.AccentDim, RectangleShape)
+                if (active) Modifier.appBorder(1.dp, BonyColors.AccentDim)
                 else Modifier
             )
             .padding(horizontal = 8.dp, vertical = 5.dp),

@@ -1,10 +1,10 @@
 package social.tbone.ui
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -51,7 +51,7 @@ fun SigningOverlay(viewModel: SigningOverlayViewModel = hiltViewModel()) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .border(1.dp, BonyColors.RuleStrong)
+                    .appBorder(1.dp, BonyColors.RuleStrong)
                     .background(BonyColors.Surface)
                     .padding(horizontal = 18.dp, vertical = 12.dp),
             ) {

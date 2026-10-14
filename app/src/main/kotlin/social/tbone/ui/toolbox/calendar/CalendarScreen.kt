@@ -1,7 +1,7 @@
 package social.tbone.ui.toolbox.calendar
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -176,7 +176,7 @@ fun CalendarScreen(
                     text = "today",
                     style = BonyType.tag.copy(color = BonyColors.TextMute),
                     modifier = Modifier
-                        .border(1.dp, BonyColors.Rule)
+                        .appBorder(1.dp, BonyColors.Rule)
                         .clickable {
                             scope.launch { pagerState.animateScrollToPage(monthIndexOf(today)) }
                             selectedDay = today
@@ -230,7 +230,7 @@ fun CalendarScreen(
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
                 .padding(end = 16.dp, bottom = 12.dp)
-                .border(1.dp, BonyColors.AccentDim)
+                .appBorder(1.dp, BonyColors.AccentDim)
                 .background(BonyColors.Surface)
                 .clickable { onNewEvent(todayStartMillis(today)) }
                 .padding(horizontal = 18.dp, vertical = 12.dp),

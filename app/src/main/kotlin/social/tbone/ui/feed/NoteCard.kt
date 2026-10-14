@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -58,6 +59,8 @@ import social.tbone.nostr.replyToPubkeys
 import social.tbone.ui.components.UserAvatar
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import social.tbone.ui.theme.appCornerShape
+import dev.youniversal.theme.YouniversalTheme
 import social.tbone.wallet.NwcWalletViewModel
 import social.tbone.wallet.canShowZapControls
 import java.time.Instant
@@ -110,9 +113,19 @@ fun NoteCard(
     showReplyContext: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
+    val youniversal = YouniversalTheme.enabled
     val cardBg = when {
         highlighted -> BonyColors.AccentBg
+        youniversal -> BonyColors.Surface
         else -> BonyColors.Bg
+    }
+    val cardShape = appCornerShape(MaterialTheme.shapes.medium, RectangleShape)
+    // The classic feed remains edge-to-edge and square. Youniversal turns each
+    // note into a softly inset, adjustable-radius surface for clearer grouping.
+    val cardContainerModifier = if (youniversal) {
+        Modifier.padding(horizontal = 8.dp).clip(cardShape).background(cardBg, cardShape)
+    } else {
+        Modifier.background(cardBg)
     }
 
     // ── Kind-6 repost ────────────────────────────────────────────────────────
@@ -120,7 +133,7 @@ fun NoteCard(
         val target = quotedEvent
         Column(
             modifier = modifier
-                .background(cardBg)
+                .then(cardContainerModifier)
                 .then(
                     if (onThreadClick != null && target != null)
                         Modifier.clickable { onThreadClick(target.id) }
@@ -197,7 +210,7 @@ fun NoteCard(
         val parsedPoll = remember(event.id) { parseNoteContent(event.content, profiles) }
         Column(
             modifier = modifier
-                .background(cardBg)
+                .then(cardContainerModifier)
                 .then(
                     if (onThreadClick != null)
                         Modifier.clickable { onThreadClick(event.id) }
@@ -298,10 +311,10 @@ fun NoteCard(
 
     Column(
         modifier = modifier
-            .background(cardBg)
+            .then(cardContainerModifier)
             .then(
                 if (highlighted) Modifier.border(width = 2.dp, color = BonyColors.Accent,
-                    shape = RectangleShape)
+                    shape = cardShape)
                 else Modifier
             )
             .then(
@@ -472,11 +485,13 @@ private fun ReferencePlaceholder(
     val quoteState = LocalQuoteState.current
     val unavailable = referenceId != null && referenceId in quoteState.unresolved
     if (unavailable) {
+        val placeholderShape = appCornerShape(MaterialTheme.shapes.small, RectangleShape)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .background(BonyColors.SurfaceAlt)
+                .clip(placeholderShape)
+                .background(BonyColors.SurfaceAlt, placeholderShape)
                 .then(
                     if (onOpen != null) Modifier.clickable { onOpen(referenceId) } else Modifier,
                 )
@@ -530,11 +545,13 @@ fun QuotedNoteCard(
         if (nestedId != null) stripQuoteRefs(parsed.text, nestedId) else parsed.text
     }
 
+    val quoteShape = appCornerShape(MaterialTheme.shapes.small, RectangleShape)
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, BonyColors.Rule)
-            .background(BonyColors.SurfaceAlt)
+            .clip(quoteShape)
+            .border(1.dp, BonyColors.Rule, quoteShape)
+            .background(BonyColors.SurfaceAlt, quoteShape)
             .then(
                 if (onThreadClick != null)
                     Modifier.clickable { onThreadClick(event.id) }

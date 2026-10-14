@@ -36,6 +36,15 @@ fun ThemeHost(content: @Composable () -> Unit) {
     val mode by viewModel.themeMode.collectAsStateWithLifecycle()
     val accentHex by viewModel.accentColor.collectAsStateWithLifecycle()
     val youniversalState = viewModel.youniversalState
+    // Observe the persisted font choice at the root too, so explicit BonyType
+    // styles used by legacy screens track Youniversal typography app-wide.
+    val youniversalFontFamily = youniversalState.fontOption.fontFamily
+
+    androidx.compose.runtime.SideEffect {
+        BonyType.setYouniversalFontFamily(
+            if (uiTheme == UiTheme.YOUNIVERSAL) youniversalFontFamily else null,
+        )
+    }
 
     // Keep Youniversal's own enabled flag in sync with the app's UiTheme
     // so selecting YOUNIVERSAL in settings actually lights up the engine.

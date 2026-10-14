@@ -1,10 +1,10 @@
 package social.tbone.ui.profile
 
+import social.tbone.ui.theme.appBorder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -237,7 +237,7 @@ private fun BannerPreview(url: String?, uploading: Boolean) {
         modifier = Modifier
             .fillMaxWidth()
             .height(110.dp)
-            .border(1.dp, BonyColors.Rule)
+            .appBorder(1.dp, BonyColors.Rule)
             .background(BonyColors.SurfaceAlt),
         contentAlignment = Alignment.Center,
     ) {
@@ -262,7 +262,7 @@ private fun AvatarPreview(url: String?, uploading: Boolean) {
     Box(
         modifier = Modifier
             .size(96.dp)
-            .border(1.dp, BonyColors.Rule)
+            .appBorder(1.dp, BonyColors.Rule)
             .background(BonyColors.SurfaceAlt),
         contentAlignment = Alignment.Center,
     ) {
@@ -290,7 +290,7 @@ private fun ActionButton(text: String, enabled: Boolean, onClick: () -> Unit) {
             color = if (enabled) BonyColors.Accent else BonyColors.TextMute,
         ),
         modifier = Modifier
-            .border(1.dp, if (enabled) BonyColors.AccentDim else BonyColors.Rule)
+            .appBorder(1.dp, if (enabled) BonyColors.AccentDim else BonyColors.Rule)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
     )

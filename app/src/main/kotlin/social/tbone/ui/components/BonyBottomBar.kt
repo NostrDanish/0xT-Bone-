@@ -3,6 +3,7 @@ package social.tbone.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -29,6 +31,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import social.tbone.ui.theme.appCornerShape
+import dev.youniversal.theme.YouniversalTheme
 
 /** The five entries of the app's bottom navigation bar. */
 enum class BottomTab(val label: String, val icon: ImageVector) {
@@ -53,13 +57,21 @@ fun BonyBottomBar(
     hasNotifications: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    val youniversal = YouniversalTheme.enabled
+    val barShape = appCornerShape(MaterialTheme.shapes.extraLarge)
     Column(
         modifier = modifier
+            .then(if (youniversal) Modifier.padding(horizontal = 12.dp, vertical = 6.dp) else Modifier)
             .fillMaxWidth()
-            .background(BonyColors.Surface),
+            .clip(barShape)
+            .background(BonyColors.Surface, barShape)
+            .then(if (youniversal) Modifier.border(1.dp, BonyColors.Rule, barShape) else Modifier),
     ) {
-        // Top hairline
-        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
+        // Keep the technical hairline in classic mode; the polished theme uses
+        // a floating rounded surface with a quieter outline instead.
+        if (!youniversal) {
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
+        }
 
         Row(
             modifier = Modifier
@@ -78,7 +90,7 @@ fun BonyBottomBar(
                             if (isActive) Modifier.border(
                                 width = 1.dp,
                                 color = BonyColors.Accent,
-                                shape = RectangleShape,
+                                shape = appCornerShape(MaterialTheme.shapes.small, RectangleShape),
                             ) else Modifier,
                         )
                         .padding(vertical = 8.dp),

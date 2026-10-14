@@ -10,7 +10,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 
 /**
  * Holds every Youniversal setting, persists it to `SharedPreferences`, and exposes each value as
@@ -44,7 +43,8 @@ public class YouniversalThemeState constructor(context: Context) {
     private val fontScaleState =
         mutableStateOf(preferences.getFloat(KEY_FONT_SCALE, 1f).coerceIn(0.7f, 2f))
     private val animateTransitionsState = mutableStateOf(preferences.getBoolean(KEY_ANIMATE, true))
-    private val fontFamilyState = mutableStateOf<FontFamily?>(null)
+    private val fontOptionState =
+        mutableStateOf(readEnum(KEY_FONT_OPTION, YouniversalFontOption.STANDARD))
 
     /** Master switch. When false the host app's own theme renders the content. */
     public val enabled: Boolean
@@ -78,12 +78,9 @@ public class YouniversalThemeState constructor(context: Context) {
     public val animateTransitions: Boolean
         get() = animateTransitionsState.value
 
-    /**
-     * Typeface override. Not persisted — a font is an object, not a preference — so restore it at
-     * startup with [setFontFamily] if your app ships one.
-     */
-    public val fontFamily: FontFamily?
-        get() = fontFamilyState.value
+    /** Persisted app-wide typeface selection. Defaults to the familiar sans-serif option. */
+    public val fontOption: YouniversalFontOption
+        get() = fontOptionState.value
 
     public fun setEnabled(value: Boolean) {
         enabledState.value = value
@@ -134,11 +131,12 @@ public class YouniversalThemeState constructor(context: Context) {
         preferences.edit().putBoolean(KEY_ANIMATE, value).apply()
     }
 
-    public fun setFontFamily(value: FontFamily?) {
-        fontFamilyState.value = value
+    public fun setFontOption(value: YouniversalFontOption) {
+        fontOptionState.value = value
+        preferences.edit().putString(KEY_FONT_OPTION, value.name).apply()
     }
 
-    /** Returns every persisted setting to its default. [fontFamily] is cleared too. */
+    /** Returns every persisted setting to its default. */
     public fun reset() {
         preferences.edit().clear().apply()
         enabledState.value = true
@@ -149,7 +147,7 @@ public class YouniversalThemeState constructor(context: Context) {
         cornerScaleState.value = 1f
         fontScaleState.value = 1f
         animateTransitionsState.value = true
-        fontFamilyState.value = null
+        fontOptionState.value = YouniversalFontOption.STANDARD
     }
 
     private fun readSeed(): Color {
@@ -171,6 +169,7 @@ public class YouniversalThemeState constructor(context: Context) {
         const val KEY_SEED = "accent_seed"
         const val KEY_CORNERS = "corner_scale"
         const val KEY_FONT_SCALE = "font_scale"
+        const val KEY_FONT_OPTION = "font_option"
         const val KEY_ANIMATE = "animate_transitions"
     }
 }

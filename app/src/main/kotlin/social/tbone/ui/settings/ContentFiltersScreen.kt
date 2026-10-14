@@ -1,5 +1,6 @@
 package social.tbone.ui.settings
 
+import social.tbone.ui.theme.appBorder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -150,7 +151,7 @@ fun ContentFiltersScreen(
                             modifier = Modifier
                                 .size(36.dp, 22.dp)
                                 .background(if (hideNsfw) BonyColors.AccentBg else BonyColors.Bg)
-                                .border(1.dp, if (hideNsfw) BonyColors.Accent else BonyColors.RuleStrong)
+                                .appBorder(1.dp, if (hideNsfw) BonyColors.Accent else BonyColors.RuleStrong)
                                 .clickable { viewModel.toggleHideNsfw() }
                                 .padding(2.dp),
                         ) {
@@ -194,7 +195,7 @@ fun ContentFiltersScreen(
                                 color = if (bleepInput.isNotBlank()) BonyColors.Accent else BonyColors.TextMute,
                             ),
                             modifier = Modifier
-                                .border(1.dp, if (bleepInput.isNotBlank()) BonyColors.AccentDim else BonyColors.Rule)
+                                .appBorder(1.dp, if (bleepInput.isNotBlank()) BonyColors.AccentDim else BonyColors.Rule)
                                 .clickable(enabled = bleepInput.isNotBlank()) {
                                     viewModel.addBleepWord(bleepInput)
                                     bleepInput = ""
@@ -233,7 +234,7 @@ fun ContentFiltersScreen(
                                 color = if (hideInput.isNotBlank()) BonyColors.Accent else BonyColors.TextMute,
                             ),
                             modifier = Modifier
-                                .border(1.dp, if (hideInput.isNotBlank()) BonyColors.AccentDim else BonyColors.Rule)
+                                .appBorder(1.dp, if (hideInput.isNotBlank()) BonyColors.AccentDim else BonyColors.Rule)
                                 .clickable(enabled = hideInput.isNotBlank()) {
                                     viewModel.addHideWord(hideInput)
                                     hideInput = ""
@@ -271,7 +272,7 @@ fun ContentFiltersScreen(
                                     color = if (filtersUnlocked) BonyColors.Accent else BonyColors.TextMute,
                                 ),
                                 modifier = Modifier
-                                    .border(1.dp, BonyColors.Rule)
+                                    .appBorder(1.dp, BonyColors.Rule)
                                     .clickable(enabled = filtersUnlocked) { viewModel.relockFilters() }
                                     .padding(horizontal = 10.dp, vertical = 10.dp),
                             )
@@ -280,7 +281,7 @@ fun ContentFiltersScreen(
                                 text = "REMOVE",
                                 style = BonyType.tag.copy(color = BonyColors.Danger),
                                 modifier = Modifier
-                                    .border(1.dp, BonyColors.Danger)
+                                    .appBorder(1.dp, BonyColors.Danger)
                                     .clickable { viewModel.disableParentalPin() }
                                     .padding(horizontal = 10.dp, vertical = 10.dp),
                             )
@@ -295,7 +296,7 @@ fun ContentFiltersScreen(
                             text = "SET PIN",
                             style = BonyType.tag.copy(color = BonyColors.Accent),
                             modifier = Modifier
-                                .border(1.dp, BonyColors.AccentDim)
+                                .appBorder(1.dp, BonyColors.AccentDim)
                                 .clickable { showSetPin = true }
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                         )
@@ -484,7 +485,7 @@ private fun ParentalPinSetup(
                     Box(
                         modifier = Modifier
                             .size(12.dp)
-                            .border(1.dp, if (filled) BonyColors.Accent else BonyColors.Rule)
+                            .appBorder(1.dp, if (filled) BonyColors.Accent else BonyColors.Rule)
                             .background(if (filled) BonyColors.Accent else BonyColors.Bg),
                     )
                 }
@@ -506,7 +507,7 @@ private fun FilterSection(title: String, content: @Composable () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 10.dp)
-            .border(1.dp, BonyColors.Rule)
+            .appBorder(1.dp, BonyColors.Rule)
             .background(BonyColors.Surface)
             .padding(12.dp),
     ) {
@@ -526,7 +527,7 @@ private fun FilterChips(words: List<String>, onRemove: (String) -> Unit) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, BonyColors.Rule)
+                    .appBorder(1.dp, BonyColors.Rule)
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

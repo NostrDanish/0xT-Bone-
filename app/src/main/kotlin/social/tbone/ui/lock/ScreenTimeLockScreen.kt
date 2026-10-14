@@ -1,7 +1,6 @@
 package social.tbone.ui.lock
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,11 +22,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import social.tbone.ui.theme.appBorder
 
 /**
  * Shown when the parental screen-time allowance is used up. The app is locked
@@ -96,7 +95,7 @@ fun ScreenTimeLockScreen(
                     Box(
                         modifier = Modifier
                             .size(12.dp)
-                            .border(1.dp, if (filled) color else BonyColors.Rule, RectangleShape)
+                            .appBorder(1.dp, if (filled) color else BonyColors.Rule)
                             .background(if (filled) color else BonyColors.Bg),
                     )
                 }
