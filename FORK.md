@@ -27,7 +27,7 @@ daomah/bony (upstream, MIT, package social.bony — approximate)
 | FileProvider authority | `${applicationId}.fileprovider` | resolves to `social.tbone.fork.fileprovider` automatically — no conflict |
 | Release signing | required `local.properties` keystore or build broke | CI-friendly: env vars → `local.properties` → debug-key fallback with a warning |
 | Privacy enforcement | stance documented in README | stance **enforced**: `scripts/privacy-check.sh` + CI gates on PRs and releases (see `docs/PRIVACY.md`) |
-| Releases | manual APK upload | automatic: push a `v*` tag → GitHub Actions builds + publishes APKs (see `docs/RELEASE.md`) |
+| Releases | manual APK upload | automatic: push a `v*` tag → GitHub Actions builds and publishes one release APK plus its checksum (no debug APK) (see `docs/RELEASE.md`) |
 
 ## Side-by-side behavior (both apps installed)
 

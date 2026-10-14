@@ -35,4 +35,4 @@ git push -u origin main
 echo ""
 echo "Done. Next: create your first release tag to test CI:"
 echo "  git tag v0.3.36-fork1 && git push origin v0.3.36-fork1"
-echo "Watch it build under GitHub -> Actions -> 'Release APKs'."
+echo "Watch it build under GitHub -> Actions -> 'Release APK'."

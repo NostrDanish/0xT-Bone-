@@ -5,6 +5,12 @@ All notable changes to this fork are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.3.52] — 2026-10-13
+
+### Changed
+- Replaced the outdated README with a concise overview of T-Bone's current features, installation, and source build.
+- Release automation now builds and publishes only the release APK and its checksum; it no longer builds or publishes a debug APK.
+
 ## [0.3.51] — 2026-10-13
 
 ### Added

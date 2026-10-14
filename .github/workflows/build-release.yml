@@ -1,7 +1,6 @@
-name: Release APKs
+name: Release APK
 
-# Every release: push a tag like v0.3.37 and this workflow builds the APKs
-# and publishes them directly to the GitHub Release for that tag.
+# Push a version tag such as v0.3.52 to build and publish one release APK.
 # See docs/RELEASE.md.
 
 on:
@@ -10,7 +9,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write # needed to create the GitHub Release + upload APKs
+  contents: write # needed to create the GitHub Release and upload its files
 
 jobs:
   build-and-release:
@@ -47,10 +46,10 @@ jobs:
             echo "Release keystore decoded from secrets."
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "No KEYSTORE_BASE64 secret — release APK will use the debug key (labeled in notes)."
+            echo "No KEYSTORE_BASE64 secret — release APK will use the debug signing key (not a debug build)."
           fi
 
-      - name: Ensure debug keystore exists (fallback signing)
+      - name: Ensure debug signing key exists (fallback signing)
         if: steps.keystore.outputs.present != 'true'
         run: |
           KS="$HOME/.android/debug.keystore"
@@ -62,12 +61,12 @@ jobs:
               -alias androiddebugkey \
               -keyalg RSA -keysize 2048 -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
-            echo "Created fallback debug keystore at $KS"
+            echo "Created fallback signing key at $KS"
           else
-            echo "Runner already has a debug keystore at $KS"
+            echo "Runner already has a signing key at $KS"
           fi
 
-      - name: Build APKs
+      - name: Build release APK
         env:
           KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -75,43 +74,34 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleRelease :app:assembleDebug --stacktrace
+          ./gradlew :app:assembleRelease --stacktrace
 
       - name: Unit tests (release aborts on failure)
         run: |
           chmod +x gradlew
-          # Blossom upload regression suite (auth token, request shape, server
-          # selection, descriptor parsing) + the rest of the unit tests.
-          # The live-network test is skipped here: it is opt-in via -DblossomLive=1.
+          # Blossom upload regression suite + the rest of the unit tests.
+          # The live-network test is opt-in via -DblossomLive=1.
           ./gradlew :app:testDebugUnitTest --stacktrace
 
-      - name: Rename APKs + checksums
-        id: apks
+      - name: Package release APK and checksum
         run: |
           TAG="${GITHUB_REF_NAME}"
-          REL="app/build/outputs/apk/release/app-release.apk"
-          DBG="app/build/outputs/apk/debug/app-debug.apk"
-          test -f "$REL" || { echo "missing $REL"; exit 1; }
-          test -f "$DBG" || { echo "missing $DBG"; exit 1; }
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK" || { echo "missing $APK"; exit 1; }
           OUT="dist"
           mkdir -p "$OUT"
-          REL_OUT="$OUT/T-Bone-fork-${TAG}-release.apk"
-          DBG_OUT="$OUT/T-Bone-fork-${TAG}-debug.apk"
-          cp "$REL" "$REL_OUT"
-          cp "$DBG" "$DBG_OUT"
-          (cd "$OUT" && sha256sum *.apk > SHA256SUMS.txt)
+          APK_NAME="T-Bone-fork-${TAG}-release.apk"
+          cp "$APK" "$OUT/$APK_NAME"
+          (cd "$OUT" && sha256sum "$APK_NAME" > SHA256SUMS.txt)
           cat "$OUT/SHA256SUMS.txt"
-          echo "rel=$REL_OUT" >> "$GITHUB_OUTPUT"
-          echo "dbg=$DBG_OUT" >> "$GITHUB_OUTPUT"
 
       - name: Release notes header
-        id: notes
         run: |
           TAG="${GITHUB_REF_NAME}"
           if [ "${{ steps.keystore.outputs.present }}" = "true" ]; then
             SIG="Signed with the repo owner's **release key** (stable update identity)."
           else
-            SIG="Signed with the **debug key** (no KEYSTORE_* secrets configured). Fine for sideloading; set up a release key for stable updates — see docs/RELEASE.md."
+            SIG="This is the **release build**, signed with the debug key because no KEYSTORE_* secrets are configured. Set up a release key for stable updates — see docs/RELEASE.md."
           fi
           {
             echo "## T-Bone fork ${TAG}"
@@ -121,18 +111,17 @@ jobs:
             echo "- Privacy: no Google services, no tracking — enforced by CI privacy gate."
             echo ""
             echo "### Files"
-            echo "- \`T-Bone-fork-${TAG}-release.apk\` — main APK (minify enabled)."
-            echo "- \`T-Bone-fork-${TAG}-debug.apk\` — debug build for testers."
+            echo "- \`T-Bone-fork-${TAG}-release.apk\` — the release APK (minify enabled)."
             echo "- \`SHA256SUMS.txt\` — verify with \`sha256sum -c SHA256SUMS.txt\`."
           } > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
 
-      - name: Publish GitHub Release with APKs
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           body_path: ${{ runner.temp }}/notes.md
           files: |
-            dist/T-Bone-fork-*.apk
+            dist/T-Bone-fork-*-release.apk
             dist/SHA256SUMS.txt
           fail_on_unmatched_files: true
           generate_release_notes: true

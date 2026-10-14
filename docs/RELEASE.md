@@ -1,101 +1,58 @@
-# Release process — this fork
+# Releases
 
-Every release is built by **GitHub Actions** and published as a **GitHub
-Release with APKs attached**. Nothing is uploaded anywhere else.
+A pushed version tag (`v*`) triggers GitHub Actions to run the privacy check and tests, build the Android **release variant**, and publish one release APK with its SHA-256 checksum. Debug APKs are not built or attached to releases. Debug builds remain available locally for development.
 
-## One-time setup (repo owner, ~10 minutes)
+## One-time setup: release signing key
 
-### 1. Create the new GitHub repo
+Configure a stable signing key so users can install updates over an existing release. Without it, CI can still build the release variant, but it falls back to the runner's debug signing key; that is not a debug APK, but it is not a stable release identity.
 
-1. On GitHub: **New repository** → name it e.g. `T-Bone-Fork` (public, no
-   README/license/gitignore — this project already has them).
-2. In this folder:
-   ```bash
-   ./scripts/setup-remote.sh git@github.com:YOURUSER/T-Bone-Fork.git
-   # or: ./scripts/setup-remote.sh https://github.com/YOURUSER/T-Bone-Fork.git
-   git push -u origin main
-   ```
-
-### 2. (Recommended) Add a release signing key
-
-Without this step, release APKs are signed with the debug key (fine for
-sideloading/tests, clearly labeled in the release notes). For stable
-install-over-update identity, add your own key:
+Generate a key and encode it for GitHub Actions:
 
 ```bash
-# 1. Generate once (keep the .jks + passwords in a password manager!)
 keytool -genkeypair -alias tbone-fork -keyalg RSA -keysize 4096 \
   -validity 9125 -keystore fork-release.jks
-
-# 2. Base64 it for GitHub Secrets
 base64 -w0 fork-release.jks > fork-release.jks.b64   # Linux
-# base64 -i fork-release.jks | tr -d '\n' > fork-release.jks.b64  # macOS
+# macOS: base64 -i fork-release.jks | tr -d '\n' > fork-release.jks.b64
 ```
 
-Then in **GitHub → repo → Settings → Secrets and variables → Actions**,
-add four repository secrets:
+In **GitHub → repository → Settings → Secrets and variables → Actions**, add:
 
 | Secret | Value |
 |---|---|
-| `KEYSTORE_BASE64` | contents of `fork-release.jks.b64` |
-| `KEYSTORE_PASSWORD` | the keystore password |
-| `KEY_ALIAS` | the alias (e.g. `tbone-fork`) |
-| `KEY_PASSWORD` | the key password |
+| `KEYSTORE_BASE64` | Contents of `fork-release.jks.b64` |
+| `KEYSTORE_PASSWORD` | Keystore password |
+| `KEY_ALIAS` | Key alias, such as `tbone-fork` |
+| `KEY_PASSWORD` | Key password |
 
-Local builds use `local.properties` instead (never committed):
+Keep the keystore and passwords backed up in a secure place. Never commit them. Local builds can use the same values in `local.properties` (which is git-ignored).
 
-```properties
-KEYSTORE_PATH=/abs/path/to/fork-release.jks
-KEYSTORE_PASSWORD=...
-KEY_ALIAS=tbone-fork
-KEY_PASSWORD=...
-```
+## Publish a release
 
-> **Back up `fork-release.jks` + passwords.** Lose them and you can never
-> publish an update that installs over the old one — users would have to
-> uninstall/reinstall (and both apps use different package IDs, so the
-> original T-Bone is never touched either way).
+1. Bump the app version and add release notes:
+   ```bash
+   ./scripts/make-release.sh 0.3.52
+   ```
+2. Edit `CHANGELOG.md`, then commit the version and release notes.
+3. Tag and push:
+   ```bash
+   git tag v0.3.52
+   git push origin main --tags
+   ```
+4. Check the **Release APK** workflow in GitHub Actions. When it succeeds, the GitHub Release contains:
+   - `T-Bone-fork-<version>-release.apk`
+   - `SHA256SUMS.txt`
 
-## Making a release (every time)
+Verify the APK after downloading it:
 
 ```bash
-# 1. Bump version (updates versionCode + versionName + CHANGELOG stub)
-./scripts/make-release.sh 0.3.37
-
-# 2. Edit CHANGELOG.md release notes, commit
-git add -A && git commit -m "Release 0.3.37"
-
-# 3. Tag + push — CI does the rest
-git tag v0.3.37
-git push origin main --tags
+sha256sum -c SHA256SUMS.txt
 ```
 
-Within a few minutes, **Releases** on GitHub will contain:
+## What the release workflow does
 
-- `T-Bone-fork-<version>-release.apk` (signed; your key if configured,
-  debug key otherwise — the notes say which)
-- `T-Bone-fork-<version>-debug.apk` (always debug-signed, for testers)
-- SHA-256 checksums for both
-- Auto-generated notes + the CHANGELOG entry
+1. Checks out the tagged commit and runs `scripts/privacy-check.sh`.
+2. Sets up JDK 17 and the Android SDK.
+3. Builds `:app:assembleRelease` only, then runs the unit tests.
+4. Packages the release APK and its checksum, then publishes those files to the GitHub Release.
 
-### What CI does on a tag push (`v*`)
-
-1. Checks out the tag.
-2. Runs `scripts/privacy-check.sh` — **release aborts if it fails**.
-3. Builds `:app:assembleRelease` and `:app:assembleDebug`.
-4. If `KEYSTORE_BASE64` secret exists, decodes it and signs release with your
-   key; otherwise uses the debug key and labels the APK accordingly.
-5. Creates/updates the GitHub Release for the tag and uploads both APKs +
-   `.sha256` files.
-
-## Rules
-
-- **Tags are the releases.** Only tags matching `v*` (e.g. `v0.3.37`) trigger
-  the release workflow. Branch pushes only run the privacy check.
-- **Never commit** `local.properties`, `*.jks`, `*.keystore`, or
-  `*.b64` key material — `.gitignore` already excludes them.
-- **Versioning:** `versionName` = user-visible (`0.3.37`), `versionCode` =
-  integer that always increases (Play-installer ordering + update checks).
-  `make-release.sh` bumps `versionCode` by 1 automatically.
-- If the privacy check ever fails on a release tag: delete the tag, fix the
-  violation, re-tag. Do not bypass CI.
+Only tags matching `v*` trigger this workflow. The privacy check also runs in CI for pull requests. If a release build cannot find a signing key, its notes identify that the release variant was signed with the fallback debug key; configure a repository release key for stable install-over-update signing.

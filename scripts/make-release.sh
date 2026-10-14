@@ -5,7 +5,7 @@
 # Usage: ./scripts/make-release.sh 0.3.37
 #
 # Then: edit CHANGELOG.md notes -> commit -> git tag v0.3.37 -> git push origin main --tags
-# CI builds the APKs and publishes the GitHub Release. See docs/RELEASE.md.
+# CI builds one release APK and publishes it with a checksum. See docs/RELEASE.md.
 #
 set -euo pipefail
 
@@ -61,4 +61,4 @@ echo "  1. Edit CHANGELOG.md release notes"
 echo "  2. ./scripts/privacy-check.sh"
 echo "  3. git add -A && git commit -m \"Release $NEW_NAME\""
 echo "  4. git tag v$NEW_NAME && git push origin main --tags"
-echo "  CI will build + publish the GitHub Release with APKs."
+echo "  CI will build + publish one release APK with its checksum."

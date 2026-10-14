@@ -136,10 +136,10 @@ This happens **in the terminal** (to create the tag) and then **in the browser**
 (to watch the build).
 
 **What you're doing:** a "tag" is a named bookmark on your code (e.g.
-`v0.3.36-fork1`). Our automation is configured so that **any tag starting with
-`v` triggers a cloud build** that compiles both APKs and attaches them to a
-GitHub Release. This test proves the pipeline works before you cut real
-releases.
+`v0.3.36-fork1`). Any tag starting with `v` triggers a GitHub Actions release
+build. It builds one release APK, runs the unit tests, then attaches that APK
+and its checksum to a GitHub Release. This test proves the pipeline works
+before you cut real releases.
 
 1. In the terminal (inside `T-Bone-Fork`):
    ```bash
@@ -147,16 +147,17 @@ releases.
    git push origin v0.3.36-fork1
    ```
 2. In the browser, open your repo → click the **Actions** tab (top bar).
-   You'll see a run called **"Release APKs"** with a yellow spinner.
-3. Click it to watch the steps live: privacy gate → JDK setup → build →
-   rename/checksums → publish release. First builds take **~5–15 minutes**
-   (Gradle downloads dependencies; later builds are faster).
+   You'll see a run called **"Release APK"** with a yellow spinner.
+3. Click it to watch the steps live: privacy gate → JDK setup → release
+   build → tests → package/checksum → publish. First builds take **~5–15
+   minutes** (Gradle downloads dependencies; later builds are faster).
 4. When it turns **green ✓**, click your repo's **Releases** link (right
    sidebar of the main repo page, or add `/releases` to the URL). You'll see
    release `v0.3.36-fork1` containing:
-   - `T-Bone-fork-v0.3.36-fork1-release.apk` (main APK)
-   - `T-Bone-fork-v0.3.36-fork1-debug.apk` (tester build)
-   - `SHA256SUMS.txt` (checksums — verify with `sha256sum -c SHA256SUMS.txt`)
+   - `T-Bone-fork-v0.3.36-fork1-release.apk` (the release APK)
+   - `SHA256SUMS.txt` (checksum — verify with `sha256sum -c SHA256SUMS.txt`)
+
+   Debug APKs are not published with releases; they remain available for local development.
 5. **Try it on your phone:** download the `-release.apk`, sideload it — it
    installs **alongside** the original T-Bone without replacing it.
 6. **Clean up the test** (optional): on the Releases page → delete the test
@@ -181,10 +182,10 @@ This happens **in the terminal** (to create the key) and **in the browser**
 (to store it as secrets).
 
 **Why:** Android decides whether an update belongs to an installed app by
-checking its **signature**. Without your own key, CI signs each build with a
-fresh debug key — meaning every update would force users to **uninstall first
-(losing data)**. With your key stored in GitHub Secrets, every release has one
-stable identity and updates install cleanly over previous versions.
+checking its **signature**. Without your own key, CI signs the release
+variant with a debug key (it is still a release build, not a debug APK). A
+stable key stored in GitHub Secrets lets updates install cleanly over previous
+versions; see `docs/RELEASE.md` if no stable key is configured.
 
 1. **Generate the key once** (terminal — `keytool` ships with Java/Android
    Studio; on Windows run it from Android Studio's terminal or
