@@ -9,6 +9,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -41,6 +44,7 @@ import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import social.tbone.media.MimeTypes
 import social.tbone.ui.components.LockBadge
 import social.tbone.ui.permissions.rememberPermissionRequester
 import social.tbone.ui.theme.BonyColors
@@ -51,13 +55,13 @@ import kotlin.math.roundToInt
 /**
  * Voice recorder tool: asks for microphone permission, records with Low /
  * Medium / High quality, supports Pause/Resume and Stop, then a mini player
- * lets you listen before the share options appear (save to device via the
- * system save dialog, share to a Nostr note, or share outside the app).
+ * lets you listen before the actions appear (save, upload to the Write
+ * composer for a kind-1 note, or share the audio outside the app).
  */
 @Composable
 fun VoiceRecorderScreen(
     onBack: () -> Unit,
-    onShareToNostr: (String) -> Unit,
+    onUploadToWrite: (String) -> Unit,
     viewModel: VoiceRecorderViewModel = hiltViewModel(),
 ) {
 
@@ -104,8 +108,9 @@ fun VoiceRecorderScreen(
     fun shareOutside() {
         val file = state.activeFile ?: return
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val mime = MimeTypes.mimeForExtension(file.extension) ?: "audio/*"
         val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "audio/mp4"
+            type = mime
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
@@ -116,7 +121,8 @@ fun VoiceRecorderScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(BonyColors.Bg)
-            .statusBarsPadding(),
+            .statusBarsPadding()
+            .navigationBarsPadding(),
     ) {
         // ── Top bar ───────────────────────────────────────────────────────────
         Row(
@@ -140,7 +146,9 @@ fun VoiceRecorderScreen(
 
         Column(
             modifier = Modifier
+                .weight(1f)
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -193,6 +201,7 @@ fun VoiceRecorderScreen(
                     label = "record",
                     isRecording = false,
                     size = 84.dp,
+                    enabled = !state.isAnonymizing,
                     onClick = { onRecordTap() },
                 )
             } else {
@@ -243,37 +252,47 @@ fun VoiceRecorderScreen(
 
                 Spacer(Modifier.height(14.dp))
 
-                if (!state.isAnonymous) {
-                    // Three distortion sliders, then render.
-                    DistortionSliders(
-                        speed = state.speed,
-                        pitch = state.pitch,
-                        drive = state.drive,
-                        onSpeed = viewModel::setSpeed,
-                        onPitch = viewModel::setPitch,
-                        onDrive = viewModel::setDrive,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    ActionButton("◉ ANONYMIZE VOICE", enabled = true) { viewModel.anonymize() }
-                } else {
+                if (state.isAnonymous) {
                     LockBadge(
-                        label = "anonymized — voice is unrecognizable",
+                        label = "anonymized output · each re-render starts from the original recording",
                         tint = BonyColors.Accent,
                         iconSize = 14.dp,
                         modifier = Modifier.padding(vertical = 8.dp),
                     )
                 }
+                DistortionSliders(
+                    speed = state.speed,
+                    pitch = state.pitch,
+                    drive = state.drive,
+                    enabled = !state.isAnonymizing,
+                    onSpeed = viewModel::setSpeed,
+                    onPitch = viewModel::setPitch,
+                    onDrive = viewModel::setDrive,
+                )
+                Spacer(Modifier.height(6.dp))
+                ActionButton(
+                    label = when {
+                        state.isAnonymizing -> "◌ ANONYMIZING…"
+                        state.isAnonymous -> "◉ RE-ANONYMIZE VOICE"
+                        else -> "◉ ANONYMIZE VOICE"
+                    },
+                    enabled = !state.isAnonymizing,
+                ) { viewModel.anonymize() }
 
                 Spacer(Modifier.height(6.dp))
-                ActionButton("↓ save to device", enabled = true) {
-                    saveLauncher.launch("voice_${System.currentTimeMillis()}.m4a")
+                ActionButton("↓ save to device", enabled = !state.isAnonymizing) {
+                    val extension = state.activeFile?.extension?.takeIf { it.isNotBlank() } ?: "m4a"
+                    saveLauncher.launch("voice_${System.currentTimeMillis()}.$extension")
                 }
-                ActionButton("✉ share to nostr note", enabled = true) {
-                    state.activeFile?.let { file ->
-                        onShareToNostr("[voice note: ${file.name} — saved on this device]")
-                    }
+                ActionButton("↑ upload audio to kind 1", enabled = !state.isAnonymizing) {
+                    state.activeFile?.let { file -> onUploadToWrite(file.absolutePath) }
                 }
-                ActionButton("↗ share outside of app", enabled = true) { shareOutside() }
+                Text(
+                    text = "opens Write and uploads this recording to a Blossom server",
+                    style = BonyType.caption.copy(color = BonyColors.TextMute),
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                ActionButton("↗ share outside of app", enabled = !state.isAnonymizing) { shareOutside() }
             }
 
             // Permission feedback (one-time denial vs blocked in settings).
@@ -308,6 +327,8 @@ fun VoiceRecorderScreen(
                 Spacer(Modifier.height(12.dp))
                 Text(text = it, style = BonyType.meta.copy(color = BonyColors.Danger))
             }
+            // Give the final action a deliberate buffer from system gesture/nav edges.
+            Spacer(Modifier.height(32.dp))
         }
     }
 }
@@ -318,6 +339,7 @@ private fun RecordControl(
     label: String,
     isRecording: Boolean,
     size: androidx.compose.ui.unit.Dp,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -329,7 +351,7 @@ private fun RecordControl(
                     color = if (isRecording) BonyColors.Warn else BonyColors.Accent,
                     shape = CircleShape,
                 )
-                .clickable(onClick = onClick)
+                .clickable(enabled = enabled, onClick = onClick)
                 .background(
                     if (isRecording) BonyColors.Warn.copy(alpha = 0.25f) else BonyColors.AccentBg,
                     CircleShape,
@@ -455,6 +477,7 @@ private fun DistortionSliders(
     speed: Float,
     pitch: Float,
     drive: Float,
+    enabled: Boolean,
     onSpeed: (Float) -> Unit,
     onPitch: (Float) -> Unit,
     onDrive: (Float) -> Unit,
@@ -470,6 +493,7 @@ private fun DistortionSliders(
             label = "speed",
             value = speed,
             valueRange = 0.5f..1.2f,
+            enabled = enabled,
             display = { v -> if (v < 1f) "${((1f / v) * 100).toInt()}% slow" else "${((v) * 100).toInt()}% fast" },
             onValue = onSpeed,
         )
@@ -478,6 +502,7 @@ private fun DistortionSliders(
             label = "pitch",
             value = pitch,
             valueRange = 0.8f..1.3f,
+            enabled = enabled,
             display = { v -> if (v < 1f) "deeper" else if (v > 1f) "higher" else "normal" },
             onValue = onPitch,
         )
@@ -486,6 +511,7 @@ private fun DistortionSliders(
             label = "distortion",
             value = drive,
             valueRange = 0f..8f,
+            enabled = enabled,
             display = { v -> if (v < 0.5f) "none" else "${v.roundToInt()}" },
             onValue = onDrive,
         )
@@ -503,6 +529,7 @@ private fun DistortionSlider(
     label: String,
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,
+    enabled: Boolean,
     display: (Float) -> String,
     onValue: (Float) -> Unit,
 ) {
@@ -521,6 +548,7 @@ private fun DistortionSlider(
         Slider(
             value = value,
             onValueChange = onValue,
+            enabled = enabled,
             valueRange = valueRange,
         )
     }

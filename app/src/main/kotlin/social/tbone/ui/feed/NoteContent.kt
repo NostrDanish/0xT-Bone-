@@ -46,6 +46,7 @@ import social.tbone.settings.ImageLoadMode
 import social.tbone.settings.VideoPlaybackMode
 import social.tbone.settings.VideoQuality
 import social.tbone.ui.media.ImageViewer
+import social.tbone.ui.media.InlineAudioPlayer
 import social.tbone.ui.media.LocalImageLoadMode
 import social.tbone.ui.media.LocalVideoPlaybackMode
 import social.tbone.ui.media.LocalVideoQuality
@@ -58,7 +59,15 @@ import social.tbone.ui.theme.appCornerShape
 import dev.youniversal.theme.YouniversalTheme
 
 private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp", "bmp")
-private val VIDEO_EXTENSIONS = setOf("mp4", "webm", "mov", "m4v", "mkv", "m3u8", "ogv", "3gp")
+private val AUDIO_EXTENSIONS = setOf(
+    "mp3", "m4a", "m4b", "m4p", "aac", "wav", "flac", "ogg", "oga", "opus",
+    "weba", "aif", "aiff", "amr", "mka", "mid", "midi", "wma", "caf",
+)
+private val VIDEO_EXTENSIONS = setOf(
+    "mp4", "webm", "mov", "qt", "m4v", "mkv", "m3u8", "ogv", "3gp", "3g2", "avi",
+    "divx", "flv", "wmv", "mpeg", "mpg", "m2v", "m2ts", "m2t", "mts", "ts", "vob",
+    "asf", "mxf", "rm", "rmvb", "f4v", "f4p", "dv", "264", "h264", "265", "h265", "hevc",
+)
 private val URL_REGEX = Regex("""https?://\S+""")
 
 private val NOSTR_URI_REGEX = Regex("""nostr:(note1|nevent1|npub1|nprofile1|naddr1)[a-z0-9]*""")
@@ -82,6 +91,7 @@ private const val LOW_QUALITY_MAX_SIZE = 512
 sealed class MediaItem {
     data class Image(val url: String) : MediaItem()
     data class Video(val url: String) : MediaItem()
+    data class Audio(val url: String) : MediaItem()
 }
 
 data class ParsedContent(
@@ -134,6 +144,7 @@ fun parseNoteContent(
             .substringBefore('?').substringBefore('#')
         when {
             ext in IMAGE_EXTENSIONS -> { mediaItems.add(MediaItem.Image(url)); "" }
+            ext in AUDIO_EXTENSIONS -> { mediaItems.add(MediaItem.Audio(url)); "" }
             ext in VIDEO_EXTENSIONS -> { mediaItems.add(MediaItem.Video(url)); "" }
             else -> match.value
         }
@@ -166,6 +177,7 @@ fun NoteMediaContent(mediaItems: List<MediaItem>, modifier: Modifier = Modifier)
                     ImageLoadMode.LOW_QUALITY ->
                         InlineImage(url = item.url, lowQuality = true, onOpen = { imageViewerUrl = item.url })
                 }
+                is MediaItem.Audio -> InlineAudioPlayer(url = item.url)
                 is MediaItem.Video -> {
                     val open = { videoViewerUrl = item.url }
                     when {

@@ -30,12 +30,12 @@ Keep the keystore and passwords backed up in a secure place. Never commit them. 
 
 1. Bump the app version and add release notes:
    ```bash
-   ./scripts/make-release.sh 0.3.52
+   ./scripts/make-release.sh 0.3.53
    ```
 2. Edit `CHANGELOG.md`, then commit the version and release notes.
 3. Tag and push:
    ```bash
-   git tag v0.3.52
+   git tag v0.3.53
    git push origin main --tags
    ```
 4. Check the **Release APK** workflow in GitHub Actions. When it succeeds, the GitHub Release contains:

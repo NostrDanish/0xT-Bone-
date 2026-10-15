@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.outlined.Audiotrack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.HorizontalDivider
@@ -54,6 +55,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,10 +88,17 @@ fun ComposeScreen(
     ) { uri ->
         uri?.let { viewModel.attachMedia(it, "image") }
     }
+    // GetContent keeps less-common video containers available through document
+    // providers instead of limiting the chooser to the system photo picker.
     val videoPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
+        ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let { viewModel.attachMedia(it, "video") }
+    }
+    val audioPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { viewModel.attachMedia(it, "audio") }
     }
     var fieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(""))
@@ -364,39 +373,41 @@ fun ComposeScreen(
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable(enabled = !uiState.isUploading) {
-                    imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }) {
-                    Icon(imageVector = Icons.Default.Image, contentDescription = "image", modifier = Modifier.size(16.dp), tint = if (uiState.isUploading) BonyColors.TextMute else BonyColors.TextMute)
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = if (uiState.isUploading) "…uploading" else "image",
-                        style = BonyType.meta.copy(
-                            color = if (uiState.isUploading) BonyColors.Accent else BonyColors.TextMute,
-                        ),
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable(enabled = !uiState.isUploading) {
-                    videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
-                }) {
-                    Icon(imageVector = Icons.Default.Videocam, contentDescription = "video", modifier = Modifier.size(16.dp), tint = BonyColors.TextMute)
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = "video",
-                        style = BonyType.meta.copy(color = BonyColors.TextMute),
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
+                ComposeMediaAction(
+                    icon = Icons.Default.Image,
+                    label = "image",
+                    uploading = uiState.uploadingKind == "image",
+                    enabled = !uiState.isUploading,
+                    onClick = {
+                        imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                )
+                Spacer(Modifier.width(10.dp))
+                ComposeMediaAction(
+                    icon = Icons.Default.Videocam,
+                    label = "video",
+                    uploading = uiState.uploadingKind == "video",
+                    enabled = !uiState.isUploading,
+                    onClick = { videoPicker.launch("video/*") },
+                )
+                Spacer(Modifier.width(10.dp))
+                ComposeMediaAction(
+                    icon = Icons.Outlined.Audiotrack,
+                    label = "audio",
+                    uploading = uiState.uploadingKind == "audio",
+                    enabled = !uiState.isUploading,
+                    onClick = { audioPicker.launch("audio/*") },
+                )
+                Spacer(Modifier.width(10.dp))
                 // "@" drops a @ at the caret and pops the mention picker.
                 Text("@", style = BonyType.meta.copy(
                         color = if (mentionQuery != null) BonyColors.Accent else BonyColors.TextMute,
                     ),
                     modifier = Modifier.clickable { insertCharAtCaret("@") })
-                Spacer(Modifier.width(16.dp))
+                Spacer(Modifier.width(10.dp))
                 Text("#", style = BonyType.meta.copy(color = BonyColors.TextMute),
                     modifier = Modifier.clickable { insertCharAtCaret("#") })
-                Spacer(Modifier.width(16.dp))
+                Spacer(Modifier.width(10.dp))
                 // NIP-88 poll toggle — highlighted when active.
                 Text(
                     text = "📊",
@@ -421,6 +432,36 @@ fun ComposeScreen(
 }
 
 // ── Blossom server chip ──────────────────────────────────────────────────────
+
+@Composable
+private fun ComposeMediaAction(
+    icon: ImageVector,
+    label: String,
+    uploading: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 4.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            modifier = Modifier.size(16.dp),
+            tint = if (uploading) BonyColors.Accent else BonyColors.TextMute,
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = if (uploading) "…uploading" else label,
+            style = BonyType.meta.copy(
+                color = if (uploading) BonyColors.Accent else BonyColors.TextMute,
+            ),
+        )
+    }
+}
 
 @Composable
 private fun BlossomChip(label: String, selected: Boolean, onClick: () -> Unit) {

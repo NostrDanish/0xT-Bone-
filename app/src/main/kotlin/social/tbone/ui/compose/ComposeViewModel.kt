@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
@@ -39,6 +40,7 @@ import social.tbone.ui.search.ProfileMatch
 import android.content.Context
 import android.net.Uri
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import javax.inject.Inject
 
 data class ComposeUiState(
@@ -53,6 +55,7 @@ data class ComposeUiState(
     val pollMultiple: Boolean = false,
     // Blossom media uploads
     val isUploading: Boolean = false,
+    val uploadingKind: String? = null,
     val uploadError: String? = null,
     /** Server chosen for the next upload (null = default/random from pool). */
     val blossomServer: String? = null,
@@ -78,6 +81,7 @@ class ComposeViewModel @Inject constructor(
     private val replyToId: String? = savedStateHandle["replyToId"]
     private val quoteToId: String? = savedStateHandle["quoteToId"]
     private val draft: String? = savedStateHandle["draft"]
+    private val audioPath: String? = savedStateHandle["audioPath"]
 
     private val _uiState = MutableStateFlow(ComposeUiState())
     val uiState: StateFlow<ComposeUiState> = _uiState.asStateFlow()
@@ -97,6 +101,15 @@ class ComposeViewModel @Inject constructor(
     private var currentMentionSubId: String? = null
 
     init {
+        audioPath?.takeIf { it.isNotBlank() }?.let { path ->
+            val recording = File(path)
+            if (recording.isFile) {
+                attachMedia(Uri.fromFile(recording), "audio")
+            } else {
+                _uiState.update { it.copy(uploadError = "recording file is no longer available") }
+            }
+        }
+
         viewModelScope.launch {
             // Pre-filled draft (e.g. "publish type 1" from the Notes toolbox).
             if (!draft.isNullOrEmpty()) {
@@ -144,36 +157,51 @@ class ComposeViewModel @Inject constructor(
     /**
      * Uploads [uri] to Blossom and exposes the resulting URL via lastUploadUrl.
      *
-     * The MIME type sent to the server is taken from the *prepared* file, not
-     * from the picker: [MediaProcessor] re-encodes images to JPEG, so sending
-     * the original picker type (e.g. `image/png`) described bytes that were no
-     * longer PNG.
+     * The MIME type sent to the server describes the prepared bytes. Images
+     * are re-encoded as JPEG; audio is copied in its original format; videos
+     * are transcoded when possible and otherwise retain their original type.
      */
     fun attachMedia(uri: Uri, kind: String) {
+        if (kind !in setOf("image", "video", "audio") || _uiState.value.isUploading) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isUploading = true, uploadError = null) }
+            _uiState.update {
+                it.copy(isUploading = true, uploadingKind = kind, uploadError = null)
+            }
             try {
                 val signer = signerFactory.forActiveAccount()
                     ?: error("no active account")
                 val compress = appSettings.blossomCompress.value
-                val isImage = kind == "image"
-                val prepared = if (isImage) {
-                    MediaProcessor.prepareImageMedia(context, uri, compress = compress)
-                } else {
-                    MediaProcessor.prepareVideoMedia(context, uri, compress = compress)
-                } ?: error("could not read media")
+                val prepared = when (kind) {
+                    "image" -> MediaProcessor.prepareImageMedia(context, uri, compress = compress)
+                    "video" -> MediaProcessor.prepareVideoMedia(context, uri, compress = compress)
+                    "audio" -> MediaProcessor.prepareAudioMedia(context, uri)
+                    else -> null
+                } ?: error("could not read ${kind} media")
+                val label = when (kind) {
+                    "image" -> "Uploading image"
+                    "video" -> "Uploading video"
+                    else -> "Uploading audio"
+                }
                 val url = blossomUploader.upload(
                     file = prepared.file,
                     mime = prepared.mime,
                     preferredServer = _uiState.value.blossomServer,
                     signer = signer,
-                    alt = if (isImage) "Uploading image" else "Uploading video",
+                    alt = label,
                     extension = prepared.extension,
                 )
-                _uiState.update { it.copy(isUploading = false, lastUploadUrl = url) }
+                _uiState.update {
+                    it.copy(isUploading = false, uploadingKind = null, lastUploadUrl = url)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiState.update {
-                    it.copy(isUploading = false, uploadError = e.message ?: "upload failed")
+                    it.copy(
+                        isUploading = false,
+                        uploadingKind = null,
+                        uploadError = e.message ?: "upload failed",
+                    )
                 }
             }
         }

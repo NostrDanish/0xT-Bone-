@@ -39,6 +39,20 @@ class NoteContentTest {
         assertTrue(parsed.mediaItems.first() is MediaItem.Video)
     }
 
+    @Test fun commonAudioFormatsBecomePlayerItemsAndLeaveNoVisibleUrlText() {
+        val parsed = parseNoteContent("listen: https://cdn.example/voice.m4a https://cdn.example/song.flac")
+        assertEquals(2, parsed.mediaItems.size)
+        assertTrue(parsed.mediaItems.all { it is MediaItem.Audio })
+        assertTrue(parsed.text.contains("listen:"))
+        assertTrue(!parsed.text.contains("https://cdn.example"))
+    }
+
+    @Test fun broaderVideoContainersAreRecognized() {
+        val parsed = parseNoteContent("https://cdn.example/clip.avi")
+        assertEquals(1, parsed.mediaItems.size)
+        assertTrue(parsed.mediaItems.first() is MediaItem.Video)
+    }
+
     @Test fun plainTextHasNoMedia() {
         val parsed = parseNoteContent("just words and a link https://example.com/page")
         assertTrue(parsed.mediaItems.isEmpty())

@@ -37,6 +37,7 @@ data class VoiceRecorderState(
     /** Set after ANONYMIZE; the preview/save/share use this file instead. */
     val anonymousFile: File? = null,
     val isAnonymous: Boolean = false,
+    val isAnonymizing: Boolean = false,
     // Three distortion sliders (defaults = midpoint config).
     val speed: Float = 0.78f,
     val pitch: Float = 1.0f,
@@ -73,17 +74,17 @@ class VoiceRecorderViewModel @Inject constructor(
     private var previewTicker: Job? = null
 
     fun setSpeed(value: Float) {
-        if (_state.value.isRecording) return
+        if (_state.value.isRecording || _state.value.isAnonymizing) return
         _state.update { it.copy(speed = value) }
     }
 
     fun setPitch(value: Float) {
-        if (_state.value.isRecording) return
+        if (_state.value.isRecording || _state.value.isAnonymizing) return
         _state.update { it.copy(pitch = value) }
     }
 
     fun setDrive(value: Float) {
-        if (_state.value.isRecording) return
+        if (_state.value.isRecording || _state.value.isAnonymizing) return
         _state.update { it.copy(drive = value) }
     }
 
@@ -94,7 +95,7 @@ class VoiceRecorderViewModel @Inject constructor(
 
     /** Begins a new recording into [dir]. Assumes microphone permission granted. */
     fun startRecording(dir: File) {
-        if (_state.value.isRecording) return
+        if (_state.value.isRecording || _state.value.isAnonymizing) return
         viewModelScope.launch {
             val q = _state.value.quality
             val ok = withContext(Dispatchers.IO) {
@@ -119,6 +120,9 @@ class VoiceRecorderViewModel @Inject constructor(
                             isRecording = true,
                             isPaused = false,
                             currentFile = file,
+                            anonymousFile = null,
+                            isAnonymous = false,
+                            isAnonymizing = false,
                             elapsedMs = 0L,
                             error = null,
                         )
@@ -174,27 +178,44 @@ class VoiceRecorderViewModel @Inject constructor(
                 }
             }
             // Starting a new recording after this resets the anonymized state.
-            _state.update { it.copy(isRecording = false, isPaused = false, anonymousFile = null, isAnonymous = false) }
+            _state.update {
+                it.copy(
+                    isRecording = false,
+                    isPaused = false,
+                    anonymousFile = null,
+                    isAnonymous = false,
+                    isAnonymizing = false,
+                )
+            }
         }
     }
 
-    /** Renders the recording completely anonymous (irreversible). */
+    /**
+     * Renders an anonymous version from the original recording. Repeated calls
+     * use that same source file with the latest slider values, never the prior
+     * render, so each tweak is independent rather than cumulatively degraded.
+     */
     fun anonymize() {
-        val src = _state.value.currentFile ?: return
-        if (_state.value.isRecording || _state.value.isPaused) return
-        val speed = _state.value.speed
-        val pitch = _state.value.pitch
-        val drive = _state.value.drive
+        val snapshot = _state.value
+        val src = snapshot.currentFile ?: return
+        if (snapshot.isRecording || snapshot.isPaused || snapshot.isAnonymizing) return
+        val speed = snapshot.speed
+        val pitch = snapshot.pitch
+        val drive = snapshot.drive
+        _state.update { it.copy(isAnonymizing = true, error = null) }
+
         viewModelScope.launch {
             val anon = withContext(Dispatchers.IO) {
-                runCatching { anonymizer.anonymize(src, speed, pitch, drive) }.getOrNull()
+                anonymizer.anonymize(src, speed, pitch, drive)
             }
             if (anon != null) {
                 stopPreview()
-                _state.update {
-                    it.copy(
+                _state.update { current ->
+                    current.anonymousFile?.takeIf { it != anon }?.delete()
+                    current.copy(
                         anonymousFile = anon,
                         isAnonymous = true,
+                        isAnonymizing = false,
                         isPreviewPlaying = false,
                         previewPositionMs = 0L,
                         previewDurationMs = 0L,
@@ -202,7 +223,9 @@ class VoiceRecorderViewModel @Inject constructor(
                     )
                 }
             } else {
-                _state.update { it.copy(error = "anonymization failed") }
+                _state.update {
+                    it.copy(isAnonymizing = false, error = "anonymization failed")
+                }
             }
         }
     }

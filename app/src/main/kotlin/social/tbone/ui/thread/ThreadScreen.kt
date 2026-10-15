@@ -1,6 +1,5 @@
 package social.tbone.ui.thread
 
-import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -33,14 +32,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import social.tbone.nostr.Event
 import social.tbone.nostr.EventKind
-import social.tbone.nostr.Nip19
 import social.tbone.nostr.quotedEventId
 import social.tbone.ui.feed.NoteCard
 import social.tbone.ui.feed.extractInlineQuoteId
@@ -79,26 +76,6 @@ fun ThreadScreen(
     val pollVoteVersion by viewModel.pollVoteVersion.collectAsStateWithLifecycle()
     val activePubkey by viewModel.activePubkey.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
-
-    val context = LocalContext.current
-    val onShare = remember {
-        { event: Event ->
-            val noteUri = "nostr:${Nip19.hexToNote(event.id)}"
-            val shareText = buildString {
-                val text = event.content.take(280).trim()
-                if (text.isNotEmpty()) { append(text); append("\n\n") }
-                append(noteUri)
-            }
-            context.startActivity(
-                Intent.createChooser(
-                    Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"; putExtra(Intent.EXTRA_TEXT, shareText)
-                    },
-                    "Share note",
-                ),
-            )
-        }
-    }
 
     val items = uiState.items
 
@@ -204,7 +181,6 @@ fun ThreadScreen(
                                 onHashtagClick = onHashtagClick,
                                 onReplyClick = onReplyClick,
                                 onQuoteClick = onQuoteClick,
-                                onShare = onShare,
                                 onBoost = viewModel::boost,
                                 onLike = viewModel::react,
                                 onPollVote = viewModel::voteOnPoll,
@@ -248,7 +224,6 @@ private fun ThreadRow(
     onHashtagClick: (String) -> Unit,
     onReplyClick: (Event) -> Unit,
     onQuoteClick: (Event) -> Unit,
-    onShare: (Event) -> Unit,
     onBoost: (Event) -> Unit,
     onLike: (Event) -> Unit,
     onPollVote: (Event, List<String>) -> Unit,
@@ -290,7 +265,6 @@ private fun ThreadRow(
             onBoost = onBoost,
             onQuote = onQuoteClick,
             onLike = onLike,
-            onShare = onShare,
             reactors = if (event.kind == EventKind.REPOST) quotedEvent?.let { reactions[it.id] }
             else reactions[event.id],
             replies = replies,

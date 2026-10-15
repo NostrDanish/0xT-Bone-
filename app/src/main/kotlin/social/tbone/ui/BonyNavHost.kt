@@ -82,7 +82,7 @@ import javax.inject.Inject
 private const val ROUTE_ONBOARDING        = "onboarding"
 private const val ROUTE_FEED              = "feed"
 private const val ROUTE_THREAD            = "thread/{eventId}"
-private const val ROUTE_COMPOSE           = "compose?replyToId={replyToId}&quoteToId={quoteToId}&draft={draft}"
+private const val ROUTE_COMPOSE           = "compose?replyToId={replyToId}&quoteToId={quoteToId}&draft={draft}&audioPath={audioPath}"
 private const val ROUTE_SETTINGS          = "settings"
 private const val ROUTE_CONTENT_FILTERS   = "content_filters"
 private const val ROUTE_BLOSSOM           = "blossom_settings"
@@ -367,8 +367,8 @@ fun BonyNavHost() {
                 composable(ROUTE_VOICE) {
                     VoiceRecorderScreen(
                         onBack = { navController.popBackStack() },
-                        onShareToNostr = { text ->
-                            navController.navigate("compose?draft=" + Uri.encode(text))
+                        onUploadToWrite = { path ->
+                            navController.navigate("compose?audioPath=" + Uri.encode(path))
                         },
                     )
                 }
@@ -402,6 +402,7 @@ fun BonyNavHost() {
                             navArgument("replyToId") { type = NavType.StringType; defaultValue = "" },
                             navArgument("quoteToId") { type = NavType.StringType; defaultValue = "" },
                             navArgument("draft") { type = NavType.StringType; defaultValue = "" },
+                            navArgument("audioPath") { type = NavType.StringType; defaultValue = "" },
                         ),
                     ) {
                         ComposeScreen(onBack = { navController.popBackStack() })

@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.media3.common.MediaItem
 import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
@@ -15,6 +16,7 @@ import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -50,8 +52,9 @@ data class PreparedMedia(
  *    keeps the file under an optional byte cap (used for the 800 KB
  *    avatar/banner limit).
  *  - VIDEOS: optionally transcoded with Media3 Transformer (re-encode also
- *    drops embedded metadata); otherwise copied as-is (honest: a raw copy
- *    keeps whatever metadata the source file had).
+ *    drops embedded metadata); unsupported sources fall back to a raw copy
+ *    with their original MIME type and extension.
+ *  - AUDIO: copied unchanged with its detected audio MIME type and extension.
  *
  * Every entry point returns a [PreparedMedia] so callers always know the true
  * MIME type and extension of the prepared file.
@@ -81,42 +84,119 @@ object MediaProcessor {
         ?.let { PreparedMedia(it, IMAGE_MIME, IMAGE_EXT) }
 
     /**
-     * Prepares a video for upload. When [compress] is true the video is
-     * transcoded to MP4 with Media3 Transformer; otherwise the bytes are copied
-     * untouched and keep the source's own MIME type (and its metadata).
+     * Prepares a video for upload. Media3 Transformer is tried first when
+     * compression is enabled. If the source codec/container is not supported,
+     * upload the original bytes with their detected MIME type and extension
+     * rather than rejecting a file the user's Blossom server may accept.
      */
     suspend fun prepareVideoMedia(
         context: Context,
         uri: Uri,
         compress: Boolean = true,
     ): PreparedMedia? {
+        val (sourceMime, sourceExtension) = withContext(Dispatchers.IO) {
+            videoSourceType(context, uri)
+        }
         if (!compress) {
-            val sourceMime = sourceMimeOf(context, uri) ?: VIDEO_MIME
-            val sourceExt = MimeTypes.extensionFor(sourceMime)
-            return copyToCache(context, uri, sourceExt)?.let {
-                PreparedMedia(it, sourceMime, sourceExt)
+            return copyToCache(context, uri, sourceExtension, "tbone_video")?.let {
+                PreparedMedia(it, sourceMime, sourceExtension)
             }
         }
-        return transcodeVideo(context, uri)?.let {
-            PreparedMedia(it, VIDEO_MIME, VIDEO_EXT)
+
+        val transcoded = try {
+            transcodeVideo(context, uri)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Timber.w(error, "video transcode unavailable; uploading original file")
+            null
         }
+        if (transcoded != null && transcoded.exists() && transcoded.length() > 0L) {
+            return PreparedMedia(transcoded, VIDEO_MIME, VIDEO_EXT)
+        }
+        transcoded?.delete()
+
+        return copyToCache(context, uri, sourceExtension, "tbone_video")?.let {
+            PreparedMedia(it, sourceMime, sourceExtension)
+        }
+    }
+
+    /** Copies an audio file unchanged so its container/codec remain intact. */
+    suspend fun prepareAudioMedia(context: Context, uri: Uri): PreparedMedia? {
+        val (declaredMime, nameExtension) = withContext(Dispatchers.IO) {
+            sourceMimeOf(context, uri)?.takeIf { MimeTypes.isAudio(it) } to
+                MimeTypes.extensionFromFileName(sourceNameOf(context, uri))
+        }
+        val inferredMime = MimeTypes.mimeForExtension(nameExtension)?.takeIf { MimeTypes.isAudio(it) }
+        val mime = inferredMime ?: declaredMime ?: return null
+        val extension = nameExtension.takeIf { inferredMime != null }
+            ?: MimeTypes.extensionFor(mime).ifBlank { return null }
+
+        val file = if (uri.scheme == "file") {
+            uri.path?.let(::File)?.takeIf { it.exists() && it.length() > 0L }
+        } else {
+            copyToCache(context, uri, extension, "tbone_audio")
+        } ?: return null
+        return PreparedMedia(file, mime, extension)
     }
 
     /** The MIME type the content resolver reports for [uri] (may be null). */
     private fun sourceMimeOf(context: Context, uri: Uri): String? =
         runCatching { context.contentResolver.getType(uri) }.getOrNull()
+            ?.substringBefore(';')
+            ?.trim()
+            ?.takeIf { it.isNotBlank() && !it.equals("application/octet-stream", ignoreCase = true) }
 
-    private suspend fun copyToCache(context: Context, uri: Uri, extension: String): File? =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val suffix = if (extension.isBlank()) "bin" else extension
-                val out = File(context.cacheDir, "tbone_video_${System.currentTimeMillis()}.$suffix")
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    out.outputStream().use { output -> input.copyTo(output) }
-                }
-                out.takeIf { it.exists() && it.length() > 0 }
-            }.getOrNull()
+    private fun sourceNameOf(context: Context, uri: Uri): String? {
+        if (uri.scheme == "file") return uri.lastPathSegment?.substringAfterLast('/')
+        val name = runCatching {
+            context.contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull()
+        return name ?: uri.lastPathSegment?.substringAfterLast('/')
+    }
+
+    private fun videoSourceType(context: Context, uri: Uri): Pair<String, String> {
+        val declaredMime = sourceMimeOf(context, uri)
+        val nameExtension = MimeTypes.extensionFromFileName(sourceNameOf(context, uri))
+        val inferredMime = MimeTypes.mimeForExtension(nameExtension)?.takeIf { MimeTypes.isVideo(it) }
+        // Prefer a known file extension over a generic provider MIME; several
+        // document providers mislabel Matroska/AVI files as video/mp4.
+        val mime = inferredMime
+            ?: declaredMime?.takeIf { MimeTypes.isVideo(it) }
+            ?: declaredMime
+            ?: VIDEO_MIME
+        val extension = nameExtension.ifBlank {
+            MimeTypes.extensionFor(mime).ifBlank { VIDEO_EXT }
         }
+        return mime to extension
+    }
+
+    private suspend fun copyToCache(
+        context: Context,
+        uri: Uri,
+        extension: String,
+        prefix: String,
+    ): File? = withContext(Dispatchers.IO) {
+        runCatching {
+            val suffix = extension.ifBlank { "bin" }
+            val out = File(context.cacheDir, "${prefix}_${System.currentTimeMillis()}.$suffix")
+            val input = if (uri.scheme == "file") {
+                uri.path?.let(::File)?.takeIf { it.exists() }?.inputStream()
+            } else {
+                context.contentResolver.openInputStream(uri)
+            } ?: return@runCatching null
+            input.use { source -> out.outputStream().use { output -> source.copyTo(output) } }
+            out.takeIf { it.exists() && it.length() > 0L }
+        }.getOrNull()
+    }
 
     private suspend fun prepareImageFile(
         context: Context,

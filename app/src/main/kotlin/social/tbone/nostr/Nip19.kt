@@ -2,8 +2,7 @@ package social.tbone.nostr
 
 /**
  * NIP-19: bech32-encoded entities.
- * Handles npub ↔ hex conversion for public keys.
- * Encoding for note, nprofile, nevent etc. can be added as needed.
+ * Handles common NIP-19 event and public-key references used by the app.
  */
 object Nip19 {
 
@@ -26,6 +25,54 @@ object Nip19 {
     /** Converts a 64-char hex event ID to a note1… string. */
     fun hexToNote(hex: String): String =
         encode("note", hex.hexToBytes()) ?: error("bech32 encoding failed for note: $hex")
+
+    /**
+     * Converts an event ID to a NIP-19 nevent reference. Author and kind are
+     * included as TLV hints when supplied; relay hints are optional.
+     */
+    fun hexToNevent(
+        idHex: String,
+        authorPubkeyHex: String? = null,
+        kind: Int? = null,
+        relayHints: List<String> = emptyList(),
+    ): String {
+        val id = idHex.hexToBytes()
+        require(id.size == 32) { "event ID must be 32 bytes" }
+
+        val tlv = mutableListOf<Byte>()
+        fun addField(type: Int, value: ByteArray) {
+            require(value.size <= 255) { "NIP-19 TLV field exceeds 255 bytes" }
+            tlv += type.toByte()
+            tlv += value.size.toByte()
+            tlv.addAll(value.toList())
+        }
+
+        addField(0, id)
+        relayHints.asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .forEach { addField(1, it.toByteArray(Charsets.UTF_8)) }
+        authorPubkeyHex?.let { author ->
+            val pubkey = author.hexToBytes()
+            require(pubkey.size == 32) { "author pubkey must be 32 bytes" }
+            addField(2, pubkey)
+        }
+        kind?.let { eventKind ->
+            require(eventKind >= 0) { "event kind must be non-negative" }
+            addField(
+                3,
+                byteArrayOf(
+                    (eventKind ushr 24).toByte(),
+                    (eventKind ushr 16).toByte(),
+                    (eventKind ushr 8).toByte(),
+                    eventKind.toByte(),
+                ),
+            )
+        }
+        return encode("nevent", tlv.toByteArray())
+            ?: error("bech32 encoding failed for nevent: $idHex")
+    }
 
     /** Returns true if the string looks like a bech32-encoded Nostr entity. */
     fun isBech32(s: String): Boolean =

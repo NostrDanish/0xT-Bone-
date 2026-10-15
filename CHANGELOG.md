@@ -5,6 +5,26 @@ All notable changes to this fork are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.3.53] — 2026-10-15
+
+### Added
+- Replaced the note/reply share button with a compact three-dot action menu:
+  inspect or copy raw event JSON, copy note text, share a NIP-19 `nevent`,
+  open the event on Njump, or hand it to another installed Nostr client.
+- Added Blossom-backed audio uploads from the voice recorder and Write composer,
+  plus a compact inline player for common audio formats that never displays the
+  source URL.
+- Voice anonymization can now be re-rendered repeatedly from the same original
+  recording after adjusting the distortion controls.
+
+### Fixed
+- The recorder's kind-1 upload action now opens Write and uploads the actual
+  audio file instead of posting a local-file placeholder.
+- Video uploads now fall back to the original file and detected MIME/extension
+  when Media3 cannot transcode a less-common container or codec.
+- Added extra lower-edge spacing to the voice recorder actions.
+
+
 ## [0.3.52] — 2026-10-13
 
 ### Changed

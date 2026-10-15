@@ -2,7 +2,6 @@ package social.tbone.ui.feed
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bolt
-import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.material.icons.outlined.FormatQuote
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -81,7 +80,6 @@ fun NoteCard(
     onBoost: ((Event) -> Unit)? = null,
     onQuote: ((Event) -> Unit)? = null,
     onLike: ((Event) -> Unit)? = null,
-    onShare: ((Event) -> Unit)? = null,
     reactors: Set<String>? = null,
     activePubkey: String? = null,
     /** Quoted/reposted notes already resolved by the caller, keyed by id. */
@@ -183,7 +181,6 @@ fun NoteCard(
                     onBoost = onBoost,
                     onQuote = onQuote,
                     onLike = onLike,
-                    onShare = onShare,
                     reactors = reactors,
                     activePubkey = activePubkey,
                     replies = replies,
@@ -197,6 +194,12 @@ fun NoteCard(
                         referenceId = quotedEventId,
                         onOpen = onThreadClick,
                     )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    NoteActionsMenu(event = event)
                 }
             }
         }
@@ -286,7 +289,6 @@ fun NoteCard(
                 onBoost = onBoost,
                 onQuote = onQuote,
                 onLike = onLike,
-                onShare = onShare,
                 reactors = reactors,
                 activePubkey = activePubkey,
                 replies = replies,
@@ -453,7 +455,6 @@ fun NoteCard(
                     onBoost = onBoost,
                     onQuote = onQuote,
                     onLike = onLike,
-                    onShare = onShare,
                     reactors = reactors,
                     activePubkey = activePubkey,
                     replies = replies,
@@ -647,7 +648,6 @@ private fun NoteEngagementRow(
     onBoost: ((Event) -> Unit)?,
     onQuote: ((Event) -> Unit)?,
     onLike: ((Event) -> Unit)?,
-    onShare: ((Event) -> Unit)?,
     reactors: Set<String>?,
     activePubkey: String?,
     replies: Map<String, Int> = emptyMap(),
@@ -676,8 +676,6 @@ private fun NoteEngagementRow(
     }
     val canZap = canShowZapControls(zapsEnabled, walletState)
     val lightningAddress = profile?.lightningAddress
-    if (onReply == null && onBoost == null && onQuote == null && onLike == null && onShare == null && !canZap) return
-
     val hasReacted = activePubkey != null && reactors?.contains(activePubkey) == true
     val likeCount = reactors?.size ?: 0
     val replyCount = replies[event.id] ?: 0
@@ -794,15 +792,7 @@ private fun NoteEngagementRow(
                 }
             }
         }
-        if (onShare != null) {
-            EngagementButton(
-                icon = Icons.Outlined.Share,
-                contentDescription = "Share",
-                count = 0,
-                tint = BonyColors.TextMute,
-                onClick = { onShare(event) },
-            )
-        }
+        NoteActionsMenu(event = event)
     }
 }
 

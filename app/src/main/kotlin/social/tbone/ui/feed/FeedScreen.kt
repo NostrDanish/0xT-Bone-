@@ -1,6 +1,5 @@
 package social.tbone.ui.feed
 
-import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
@@ -46,13 +45,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import social.tbone.nostr.Event
-import social.tbone.nostr.Nip19
 import social.tbone.nostr.quotedEventId
 import social.tbone.nostr.relay.RelayStatus
 import social.tbone.ui.components.AccountSwitcherSheet
@@ -93,22 +90,6 @@ fun FeedScreen(
     val pollVoteCounts by viewModel.pollVoteCounts.collectAsStateWithLifecycle()
     val pollMyVotes by viewModel.pollMyVotes.collectAsStateWithLifecycle()
     val pollVoteVersion by viewModel.pollVoteVersion.collectAsStateWithLifecycle()
-
-    val context = LocalContext.current
-    val onShare = remember {
-        { event: Event ->
-            val noteUri = "nostr:${Nip19.hexToNote(event.id)}"
-            val shareText = buildString {
-                val text = event.content.take(280).trim()
-                if (text.isNotEmpty()) { append(text); append("\n\n") }
-                append(noteUri)
-            }
-            context.startActivity(Intent.createChooser(
-                Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, shareText) },
-                "Share note",
-            ))
-        }
-    }
 
     val listState = rememberLazyListState()
     var isRefreshing by remember { mutableStateOf(false) }
@@ -233,7 +214,6 @@ fun FeedScreen(
                                 onBoost = viewModel::boost,
                                 onQuote = onQuoteClick,
                                 onLike = viewModel::react,
-                                onShare = onShare,
                                 reactors = if (event.kind == social.tbone.nostr.EventKind.REPOST)
                                     quotedEvent?.let { reactions[it.id] }
                                 else

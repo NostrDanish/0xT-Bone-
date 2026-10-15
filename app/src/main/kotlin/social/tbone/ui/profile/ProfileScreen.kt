@@ -41,9 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -111,21 +109,6 @@ fun ProfileScreen(
     val pubkey = viewModel.pubkey
 
     val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-    val onShareNote = remember {
-        { event: Event ->
-            val noteUri = "nostr:${Nip19.hexToNote(event.id)}"
-            val shareText = buildString {
-                val text = event.content.take(280).trim()
-                if (text.isNotEmpty()) { append(text); append("\n\n") }
-                append(noteUri)
-            }
-            context.startActivity(Intent.createChooser(
-                Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, shareText) },
-                "Share note",
-            ))
-        }
-    }
     // Which cards the current tab shows. "all" keeps every note plus reposts,
     // "replies" is filtered to replies only, and "media" is the gallery below.
     val visibleNotes = when (selectedTab) {
@@ -515,7 +498,6 @@ fun ProfileScreen(
                         onBoost = viewModel::boost,
                         onQuote = onQuoteClick,
                         onLike = viewModel::react,
-                        onShare = onShareNote,
                         reactors = if (event.kind == EventKind.REPOST) {
                             quotedEvent?.let { reactions[it.id] }
                         } else {

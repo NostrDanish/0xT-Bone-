@@ -1,6 +1,6 @@
 name: Release APK
 
-# Push a version tag such as v0.3.52 to build and publish one release APK.
+# Push a version tag such as v0.3.53 to build and publish one release APK.
 # See docs/RELEASE.md.
 
 on:

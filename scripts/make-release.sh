@@ -2,15 +2,15 @@
 #
 # make-release.sh — bump versionCode/versionName and stage a CHANGELOG entry.
 #
-# Usage: ./scripts/make-release.sh 0.3.37
+# Usage: ./scripts/make-release.sh 0.3.53
 #
-# Then: edit CHANGELOG.md notes -> commit -> git tag v0.3.37 -> git push origin main --tags
+# Then: edit CHANGELOG.md notes -> commit -> git tag v0.3.53 -> git push origin main --tags
 # CI builds one release APK and publishes it with a checksum. See docs/RELEASE.md.
 #
 set -euo pipefail
 
 if [ $# -ne 1 ]; then
-  echo "Usage: $0 <new-versionName>   (e.g. $0 0.3.37)"
+  echo "Usage: $0 <new-versionName>   (e.g. $0 0.3.53)"
   exit 2
 fi
 NEW_NAME="$1"
