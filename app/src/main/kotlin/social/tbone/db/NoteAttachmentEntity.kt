@@ -30,11 +30,30 @@ data class NoteAttachmentEntity(
     val createdAt: Long,
 )
 
+/** Attachment descriptor projection, intentionally excluding ciphertext BLOBs. */
+data class NoteAttachmentMetadata(
+    val id: String,
+    val noteId: String,
+    val kind: String,
+    val mime: String,
+    val size: Long,
+    val createdAt: Long,
+)
+
 @Dao
 interface NoteAttachmentDao {
 
     @Query("SELECT * FROM note_attachments WHERE noteId = :noteId ORDER BY createdAt ASC")
     fun observeByNote(noteId: String): Flow<List<NoteAttachmentEntity>>
+
+    @Query("SELECT id, noteId, kind, mime, size, createdAt FROM note_attachments ORDER BY createdAt ASC, id ASC")
+    suspend fun getAllMetadata(): List<NoteAttachmentMetadata>
+
+    @Query("SELECT * FROM note_attachments WHERE id = :id")
+    suspend fun getById(id: String): NoteAttachmentEntity?
+
+    @Query("DELETE FROM note_attachments")
+    suspend fun deleteAll()
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(attachment: NoteAttachmentEntity)

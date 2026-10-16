@@ -34,6 +34,12 @@ interface NoteFolderDao {
     @Query("SELECT * FROM note_folders WHERE id = :id")
     suspend fun getById(id: String): NoteFolderEntity?
 
+    @Query("SELECT * FROM note_folders ORDER BY pinned DESC, sortOrder ASC, name ASC")
+    suspend fun getAll(): List<NoteFolderEntity>
+
+    @Query("DELETE FROM note_folders")
+    suspend fun deleteAll()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(folder: NoteFolderEntity)
 

@@ -41,7 +41,7 @@ class CalendarAlarmReceiver : BroadcastReceiver() {
                 val title = intent.getStringExtra(CalendarAlarmScheduler.EXTRA_TITLE)
                     ?: "calendar event"
                 val start = intent.getLongExtra(CalendarAlarmScheduler.EXTRA_START, 0L)
-                postNotification(context, title, start)
+                postNotification(context, id, title, start)
                 // Chain the NEXT occurrence (repeating events keep notifying
                 // without the app being opened in between).
                 val pending = goAsync()
@@ -56,6 +56,9 @@ class CalendarAlarmReceiver : BroadcastReceiver() {
             }
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_MY_PACKAGE_REPLACED,
+            Intent.ACTION_TIME_CHANGED,
+            Intent.ACTION_TIMEZONE_CHANGED,
+            Intent.ACTION_DATE_CHANGED,
             -> {
                 // Re-schedule future alarms after reboot / update. The DB read
                 // is suspend, so run it on an IO coroutine and finish when done.
@@ -73,7 +76,7 @@ class CalendarAlarmReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun postNotification(context: Context, title: String, startMillis: Long) {
+    private fun postNotification(context: Context, eventId: String, title: String, startMillis: Long) {
         // Android 13+ needs POST_NOTIFICATIONS before showing anything.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
@@ -87,7 +90,7 @@ class CalendarAlarmReceiver : BroadcastReceiver() {
             .format(DateTimeFormatter.ofPattern("h:mm a"))
         val contentIntent = PendingIntent.getActivity(
             context,
-            startMillis.toInt(),
+            eventId.hashCode(),
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             },
@@ -103,7 +106,7 @@ class CalendarAlarmReceiver : BroadcastReceiver() {
             .build()
         runCatching {
             context.getSystemService(NotificationManager::class.java)
-                .notify(startMillis.toInt(), notification)
+                .notify(eventId.hashCode(), notification)
         }
     }
 

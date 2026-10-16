@@ -61,6 +61,10 @@ fun BonyBottomBar(
     val barShape = appCornerShape(MaterialTheme.shapes.extraLarge)
     Column(
         modifier = modifier
+            // Keep the painted bar itself above Android's gesture/three-button
+            // area. Applying this inside the Row painted the surface behind
+            // system navigation and squeezed the tab labels in edge-to-edge mode.
+            .navigationBarsPadding()
             .then(if (youniversal) Modifier.padding(horizontal = 12.dp, vertical = 6.dp) else Modifier)
             .fillMaxWidth()
             .clip(barShape)
@@ -74,9 +78,7 @@ fun BonyBottomBar(
         }
 
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding(),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             BottomTab.entries.forEach { tab ->
                 val isActive = tab == selected

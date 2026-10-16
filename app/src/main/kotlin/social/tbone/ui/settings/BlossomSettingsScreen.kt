@@ -51,6 +51,7 @@ fun BlossomSettingsScreen(
     val servers by viewModel.blossomServers.collectAsStateWithLifecycle()
     val defaultServer by viewModel.blossomDefaultServer.collectAsStateWithLifecycle()
     val compress by viewModel.blossomCompress.collectAsStateWithLifecycle()
+    val audioCompress by viewModel.blossomAudioCompress.collectAsStateWithLifecycle()
     var customInput by remember { mutableStateOf("") }
 
     Column(
@@ -198,6 +199,37 @@ fun BlossomSettingsScreen(
                             .size(16.dp)
                             .align(if (compress) Alignment.CenterEnd else Alignment.CenterStart)
                             .background(if (compress) BonyColors.Accent else BonyColors.TextMute),
+                    )
+                }
+            }
+
+            // Audio compression is deliberately separate and opt-in. With it
+            // off, the source file is uploaded unchanged (including MP3 files).
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("compress audio uploads", style = BonyType.meta.copy(color = BonyColors.Text))
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "re-encodes audio to compact AAC/M4A · off keeps the original MP3 or other format",
+                        style = BonyType.metaDim.copy(color = BonyColors.TextMute),
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(36.dp, 22.dp)
+                        .background(if (audioCompress) BonyColors.AccentBg else BonyColors.Bg)
+                        .appBorder(1.dp, if (audioCompress) BonyColors.Accent else BonyColors.RuleStrong)
+                        .clickable { viewModel.setBlossomAudioCompress(!audioCompress) }
+                        .padding(2.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .align(if (audioCompress) Alignment.CenterEnd else Alignment.CenterStart)
+                            .background(if (audioCompress) BonyColors.Accent else BonyColors.TextMute),
                     )
                 }
             }

@@ -40,6 +40,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import kotlinx.coroutines.delay
 import social.tbone.di.ImageClientProvider
+import social.tbone.media.MimeTypes
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
 
@@ -244,7 +245,7 @@ private fun rememberAudioPlayer(url: String): ExoPlayer {
                     true,
                 )
                 created.repeatMode = Player.REPEAT_MODE_OFF
-                created.setMediaItem(MediaItem.fromUri(url))
+                created.setMediaItem(audioMediaItem(url))
                 created.prepare()
             }
     }
@@ -254,10 +255,20 @@ private fun rememberAudioPlayer(url: String): ExoPlayer {
     return player
 }
 
+/** Normalize filename MIME aliases (notably `.mpga`) to Media3's canonical audio MIME. */
+private fun audioMediaItem(url: String): MediaItem {
+    val path = url.substringBefore('?').substringBefore('#')
+    val extension = path.substringAfterLast('/', "").substringAfterLast('.', "").lowercase()
+    val mime = MimeTypes.mimeForExtension(extension)?.takeIf { MimeTypes.isAudio(it) }
+    val builder = MediaItem.Builder().setUri(url)
+    if (mime != null) builder.setMimeType(mime)
+    return builder.build()
+}
+
 private fun audioFormatLabel(url: String): String = when (
     url.substringBefore('?').substringBefore('#').substringAfterLast('.', "").lowercase()
 ) {
-    "mp3" -> "MP3"
+    "mp3", "mpga", "mpeg3", "mpg3" -> "MP3"
     "m4a", "m4b", "m4p" -> "M4A"
     "aac" -> "AAC"
     "wav" -> "WAV"

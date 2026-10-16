@@ -199,7 +199,7 @@ fun NoteCard(
                     modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    NoteActionsMenu(event = event)
+                    NoteActionsMenu(event = event, authorName = profile?.bestName)
                 }
             }
         }
@@ -792,7 +792,7 @@ private fun NoteEngagementRow(
                 }
             }
         }
-        NoteActionsMenu(event = event)
+        NoteActionsMenu(event = event, authorName = profile?.bestName)
     }
 }
 

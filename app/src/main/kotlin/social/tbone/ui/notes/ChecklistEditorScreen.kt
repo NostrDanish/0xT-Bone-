@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import social.tbone.notes.ChecklistCodec
@@ -185,6 +186,7 @@ fun ChecklistEditorScreen(
             placeholder = { Text("checklist title", style = BonyType.meta.copy(color = BonyColors.TextMute)) },
             singleLine = true,
             textStyle = BonyType.body.copy(color = BonyColors.Text),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -256,7 +258,10 @@ fun ChecklistEditorScreen(
                 placeholder = { Text("add an item…", style = BonyType.meta.copy(color = BonyColors.TextMute)) },
                 singleLine = true,
                 textStyle = BonyType.body.copy(color = BonyColors.Text),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    imeAction = ImeAction.Done,
+                ),
                 keyboardActions = KeyboardActions(onDone = { addItem() }),
                 modifier = Modifier.weight(1f),
             )
@@ -389,6 +394,7 @@ private fun ItemEditOverlay(
                 onValueChange = { text = it },
                 singleLine = true,
                 textStyle = BonyType.body.copy(color = BonyColors.Text),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(12.dp))

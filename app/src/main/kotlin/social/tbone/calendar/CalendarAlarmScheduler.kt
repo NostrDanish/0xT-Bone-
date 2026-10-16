@@ -4,16 +4,20 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Schedules fully offline, time-based alarms for calendar events.
+ * Schedules fully offline, time-based alarms for calendar events. The Android
+ * AlarmManager owns the timers; this does not require Google Play Services,
+ * relay connectivity, or a persistent app process.
  *
- * Each event with a future end time gets an exact alarm at its start time
- * (all-day events alarm at local midnight). When the alarm fires,
+ * Each event gets one pending alarm for its next occurrence: timed events
+ * notify ten minutes early, while all-day events notify at local midnight.
+ * When the alarm fires,
  * [CalendarAlarmReceiver] posts a notification. Alarms are re-scheduled
  * whenever the event list changes and after a reboot (BOOT_COMPLETED) so an
  * event reminder survives app restarts and device reboots with no network.
@@ -30,7 +34,7 @@ class CalendarAlarmScheduler @Inject constructor(
         get() = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
 
     /** How far before the event start the reminder fires. */
-    private val LEAD_MILLIS = 10L * 60L * 1000L
+    private val LEAD_MILLIS = CalendarAlarmTiming.DEFAULT_LEAD_MILLIS
 
     /**
      * Cancels every pending calendar alarm, then schedules the NEXT occurrence
@@ -40,35 +44,63 @@ class CalendarAlarmScheduler @Inject constructor(
     fun rescheduleAll(events: List<CalendarEventUi>) {
         val now = System.currentTimeMillis()
         val upcoming = events.mapNotNull { event ->
-            val start = event.nextOccurrenceAtOrAfter(now + LEAD_MILLIS) ?: return@mapNotNull null
-            event to start
+            val start = event.nextOccurrenceAtOrAfter(now) ?: return@mapNotNull null
+            val lead = if (event.allDay) 0L else LEAD_MILLIS
+            val fireAt = CalendarAlarmTiming.reminderFireAt(start, now, lead)
+            Triple(event, start, fireAt)
         }
         val activeIds = upcoming.map { it.first.id }.toSet()
         cancelAllExcept(activeIds)
-        upcoming.forEach { (event, start) ->
-            schedule(event.id, event.title, start, start - LEAD_MILLIS)
+        upcoming.forEach { (event, start, fireAt) ->
+            schedule(event.id, event.title, start, fireAt)
         }
     }
 
     /** Schedules the occurrence of [event] that comes after [afterMillis]. */
     fun scheduleNextOccurrence(event: CalendarEventUi, afterMillis: Long) {
         val start = event.nextOccurrenceAtOrAfter(afterMillis + 1) ?: return
-        val fireAt = start - LEAD_MILLIS
-        if (fireAt <= System.currentTimeMillis()) return
+        val now = System.currentTimeMillis()
+        val lead = if (event.allDay) 0L else LEAD_MILLIS
+        val fireAt = CalendarAlarmTiming.reminderFireAt(start, now, lead)
         schedule(event.id, event.title, start, fireAt)
         persistIds(scheduledIds() + event.id)
     }
 
     fun cancel(eventId: String) {
-        runCatching { alarmManager?.cancel(pi(context, eventId, "", 0L)) }
+        cancelCurrentPendingAlarm(eventId)
+        cancelLegacyPendingAlarm(eventId)
         persistIds(scheduledIds() - eventId)
     }
 
     private fun cancelAllExcept(keep: Set<String>) {
-        scheduledIds().filterNot { it in keep }.forEach { id ->
-            runCatching { alarmManager?.cancel(pi(context, id, "", 0L)) }
+        val previousIds = scheduledIds()
+        previousIds.forEach { id ->
+            // Before the data-URI identity was added, updates would otherwise
+            // leave the old PendingIntent alive beside its replacement.
+            cancelLegacyPendingAlarm(id)
+            if (id !in keep) cancelCurrentPendingAlarm(id)
         }
         persistIds(keep)
+    }
+
+    private fun cancelCurrentPendingAlarm(eventId: String) {
+        runCatching { alarmManager?.cancel(pi(context, eventId, "", 0L)) }
+    }
+
+    /** Cancels the pre-data-URI PendingIntent identity during upgrade cleanup. */
+    private fun cancelLegacyPendingAlarm(eventId: String) {
+        val pending = runCatching {
+            PendingIntent.getBroadcast(
+                context,
+                eventId.hashCode(),
+                buildAlarmIntent(context, eventId, "", 0L),
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }.getOrNull() ?: return
+        runCatching {
+            alarmManager?.cancel(pending)
+            pending.cancel()
+        }
     }
 
     private fun schedule(eventId: String, title: String, startMillis: Long, fireAt: Long) {
@@ -129,7 +161,10 @@ class CalendarAlarmScheduler @Inject constructor(
             title: String,
             startMillis: Long,
         ): PendingIntent {
+            // The data URI makes PendingIntent identity collision-safe even if
+            // two event ids happen to have the same String.hashCode().
             val intent = buildAlarmIntent(context, eventId, title, startMillis)
+                .setData(Uri.parse("tbone-calendar://alarm/${Uri.encode(eventId)}"))
             return PendingIntent.getBroadcast(
                 context,
                 eventId.hashCode(),

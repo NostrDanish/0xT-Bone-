@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Image
@@ -57,6 +58,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -289,6 +291,7 @@ fun ComposeScreen(
                         .focusRequester(focusRequester),
                     textStyle = BonyType.body.copy(color = BonyColors.Text),
                     cursorBrush = SolidColor(BonyColors.Accent),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     enabled = !uiState.isPublishing,
                 )
 
@@ -694,6 +697,7 @@ private fun PollBuilder(
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                     textStyle = BonyType.bodyDim.copy(color = BonyColors.Text),
                     cursorBrush = SolidColor(BonyColors.Accent),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     singleLine = true,
                     decorationBox = { inner ->
                         if (option.isEmpty()) {

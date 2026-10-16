@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.Icon
@@ -34,12 +35,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import social.tbone.notes.NoteFolderUi
+import social.tbone.notes.ChecklistData
 import social.tbone.notes.NoteKind
 import social.tbone.notes.NoteUi
 import social.tbone.ui.theme.BonyColors
@@ -97,145 +100,24 @@ fun NotesScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(BonyColors.Bg)
-                .statusBarsPadding(),
-        ) {
-            // ── Top bar ─────────────────────────────────────────────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "←",
-                    style = BonyType.body.copy(color = BonyColors.TextMute),
-                    modifier = Modifier.clickable { onBack() },
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "notes",
-                    style = BonyType.body.copy(color = BonyColors.Text),
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = if (encryptionVerified) "ⓘ encryption" else "ⓘ encryption ⚠",
-                    style = BonyType.tag.copy(
-                        color = if (encryptionVerified) BonyColors.Accent else BonyColors.Danger,
-                    ),
-                    modifier = Modifier
-                        .appBorder(1.dp, if (encryptionVerified) BonyColors.AccentDim else BonyColors.Danger)
-                        .clickable { onInfo() }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-            }
-            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
-
-            if (error != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(BonyColors.Danger.copy(alpha = 0.12f))
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                ) {
-                    Text(text = error.orEmpty(), style = BonyType.meta.copy(color = BonyColors.Danger))
-                }
-            }
-
-            if (notes.isEmpty() && folders.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "no notes yet",
-                            style = BonyType.body.copy(color = BonyColors.TextDim),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "encrypted on-device notes + checklists + folders",
-                            style = BonyType.meta.copy(color = BonyColors.TextMute),
-                        )
-                        Spacer(Modifier.height(20.dp))
-                        Box(
-                            modifier = Modifier
-                                .appBorder(1.dp, BonyColors.Accent)
-                                .clickable { onNewNote() }
-                                .padding(horizontal = 24.dp, vertical = 12.dp),
-                        ) {
-                            Text("+ WRITE A NOTE", style = BonyType.button.copy(color = BonyColors.Accent))
-                        }
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .navigationBarsPadding(),
-                ) {
-                    // Pinned first (the very top), regardless of folder.
-                    val pinned = notes.filter { it.pinned }.sortedBy { it.sortOrder }
-                    items(pinned, key = { "n_${it.id}" }) { note ->
-                        NoteRow(note, onClick = {
-                            when (note.kind) {
-                                NoteKind.NOTE -> onOpenNote(note.id)
-                                NoteKind.CHECKLIST -> onOpenChecklist(note.id)
-                            }
-                        }, onLongClick = { noteTarget = note })
-                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
-                    }
-                    // Folders in order, each with its unpinned children.
-                    val folderList = folders.sortedWith(
-                        compareByDescending<NoteFolderUi> { it.pinned }.thenBy { it.sortOrder }.thenBy { it.name },
-                    )
-                    folderList.forEach { folder ->
-                        item(key = "f_${folder.id}") {
-                            FolderRow(
-                                folder = folder,
-                                count = notes.count { it.folderId == folder.id },
-                                onToggle = { onOpenFolder(folder.id, folder.name) },
-                                onLongClick = { folderTarget = folder },
-                            )
-                            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
-                        }
-                    }
-                    // Un-filed unpinned notes.
-                    val unfiled = notes.filter { !it.pinned && it.folderId.isNullOrBlank() }
-                        .sortedBy { it.sortOrder }
-                    items(unfiled, key = { "u_${it.id}" }) { note ->
-                        NoteRow(note, onClick = {
-                            when (note.kind) {
-                                NoteKind.NOTE -> onOpenNote(note.id)
-                                NoteKind.CHECKLIST -> onOpenChecklist(note.id)
-                            }
-                        }, onLongClick = { noteTarget = note })
-                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
-                    }
-                    item { Spacer(Modifier.height(88.dp)) }
-                }
-            }
-        }
-
-        // ── Floating + button (bottom-right) ───────────────────────────────────
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(end = 16.dp, bottom = 12.dp)
-                .appBorder(1.dp, BonyColors.AccentDim)
-                .background(BonyColors.Surface)
-                .clickable { fabMenu = true }
-                .padding(horizontal = 18.dp, vertical = 12.dp),
-        ) {
-            Text(text = "+", style = BonyType.button.copy(color = BonyColors.Accent))
-        }
+        NotesMainContent(
+            notes = notes,
+            folders = folders,
+            encryptionVerified = encryptionVerified,
+            error = error,
+            onBack = onBack,
+            onInfo = onInfo,
+            onNewNote = onNewNote,
+            onOpenNote = onOpenNote,
+            onOpenChecklist = onOpenChecklist,
+            onOpenFolder = onOpenFolder,
+            onNoteLongClick = { noteTarget = it },
+            onFolderLongClick = { folderTarget = it },
+        )
+        NotesAddButton(
+            modifier = Modifier.align(Alignment.BottomEnd),
+            onClick = { fabMenu = true },
+        )
     }
 
     // ── + popup ────────────────────────────────────────────────────────────────
@@ -318,6 +200,220 @@ fun NotesScreen(
     }
 }
 
+@Composable
+private fun NotesMainContent(
+    notes: List<NoteUi>,
+    folders: List<NoteFolderUi>,
+    encryptionVerified: Boolean,
+    error: String?,
+    onBack: () -> Unit,
+    onInfo: () -> Unit,
+    onNewNote: () -> Unit,
+    onOpenNote: (String) -> Unit,
+    onOpenChecklist: (String) -> Unit,
+    onOpenFolder: (String, String) -> Unit,
+    onNoteLongClick: (NoteUi) -> Unit,
+    onFolderLongClick: (NoteFolderUi) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BonyColors.Bg)
+            .statusBarsPadding(),
+    ) {
+        NotesTopBar(encryptionVerified = encryptionVerified, onBack = onBack, onInfo = onInfo)
+        NotesDivider()
+        error?.let { NotesErrorBanner(it) }
+
+        if (notes.isEmpty() && folders.isEmpty()) {
+            NotesEmptyState(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                onNewNote = onNewNote,
+            )
+        } else {
+            NotesList(
+                notes = notes,
+                folders = folders,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                onOpenNote = onOpenNote,
+                onOpenChecklist = onOpenChecklist,
+                onOpenFolder = onOpenFolder,
+                onNoteLongClick = onNoteLongClick,
+                onFolderLongClick = onFolderLongClick,
+            )
+        }
+    }
+}
+
+@Composable
+private fun NotesTopBar(
+    encryptionVerified: Boolean,
+    onBack: () -> Unit,
+    onInfo: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "←",
+            style = BonyType.body.copy(color = BonyColors.TextMute),
+            modifier = Modifier.clickable { onBack() },
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "notes",
+            style = BonyType.body.copy(color = BonyColors.Text),
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = if (encryptionVerified) "ⓘ encryption" else "ⓘ encryption ⚠",
+            style = BonyType.tag.copy(
+                color = if (encryptionVerified) BonyColors.Accent else BonyColors.Danger,
+            ),
+            modifier = Modifier
+                .appBorder(1.dp, if (encryptionVerified) BonyColors.AccentDim else BonyColors.Danger)
+                .clickable { onInfo() }
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun NotesErrorBanner(message: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(BonyColors.Danger.copy(alpha = 0.12f))
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Text(text = message, style = BonyType.meta.copy(color = BonyColors.Danger))
+    }
+}
+
+@Composable
+private fun NotesEmptyState(modifier: Modifier, onNewNote: () -> Unit) {
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "no notes yet",
+                style = BonyType.body.copy(color = BonyColors.TextDim),
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "encrypted on-device notes + checklists + folders",
+                style = BonyType.meta.copy(color = BonyColors.TextMute),
+            )
+            Spacer(Modifier.height(20.dp))
+            Box(
+                modifier = Modifier
+                    .appBorder(1.dp, BonyColors.Accent)
+                    .clickable { onNewNote() }
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
+            ) {
+                Text("+ WRITE A NOTE", style = BonyType.button.copy(color = BonyColors.Accent))
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotesList(
+    notes: List<NoteUi>,
+    folders: List<NoteFolderUi>,
+    modifier: Modifier,
+    onOpenNote: (String) -> Unit,
+    onOpenChecklist: (String) -> Unit,
+    onOpenFolder: (String, String) -> Unit,
+    onNoteLongClick: (NoteUi) -> Unit,
+    onFolderLongClick: (NoteFolderUi) -> Unit,
+) {
+    LazyColumn(modifier = modifier.navigationBarsPadding()) {
+        // Pinned first (the very top), regardless of folder.
+        val pinned = notes.filter { it.pinned }.sortedBy { it.sortOrder }
+        items(pinned, key = { "n_${it.id}" }) { note ->
+            NotesListNoteRow(
+                note = note,
+                onOpenNote = onOpenNote,
+                onOpenChecklist = onOpenChecklist,
+                onLongClick = { onNoteLongClick(note) },
+            )
+            NotesDivider()
+        }
+
+        // Folders in order, each with its unpinned children.
+        val folderList = folders.sortedWith(
+            compareByDescending<NoteFolderUi> { it.pinned }.thenBy { it.sortOrder }.thenBy { it.name },
+        )
+        folderList.forEach { folder ->
+            item(key = "f_${folder.id}") {
+                FolderRow(
+                    folder = folder,
+                    count = notes.count { it.folderId == folder.id },
+                    onToggle = { onOpenFolder(folder.id, folder.name) },
+                    onLongClick = { onFolderLongClick(folder) },
+                )
+                NotesDivider()
+            }
+        }
+
+        // Un-filed unpinned notes.
+        val unfiled = notes.filter { !it.pinned && it.folderId.isNullOrBlank() }
+            .sortedBy { it.sortOrder }
+        items(unfiled, key = { "u_${it.id}" }) { note ->
+            NotesListNoteRow(
+                note = note,
+                onOpenNote = onOpenNote,
+                onOpenChecklist = onOpenChecklist,
+                onLongClick = { onNoteLongClick(note) },
+            )
+            NotesDivider()
+        }
+        item { Spacer(Modifier.height(88.dp)) }
+    }
+}
+
+@Composable
+private fun NotesListNoteRow(
+    note: NoteUi,
+    onOpenNote: (String) -> Unit,
+    onOpenChecklist: (String) -> Unit,
+    onLongClick: () -> Unit,
+) {
+    NoteRow(
+        note = note,
+        onClick = {
+            when (note.kind) {
+                NoteKind.NOTE -> onOpenNote(note.id)
+                NoteKind.CHECKLIST -> onOpenChecklist(note.id)
+            }
+        },
+        onLongClick = onLongClick,
+    )
+}
+
+@Composable
+private fun NotesDivider() {
+    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
+}
+
+@Composable
+private fun NotesAddButton(modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier = modifier
+            .navigationBarsPadding()
+            .padding(end = 16.dp, bottom = 12.dp)
+            .appBorder(1.dp, BonyColors.AccentDim)
+            .background(BonyColors.Surface)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+    ) {
+        Text(text = "+", style = BonyType.button.copy(color = BonyColors.Accent))
+    }
+}
+
 /** The floating + popup — three actions in the same corner. */
 @Composable
 private fun FabMenuOverlay(
@@ -394,6 +490,7 @@ private fun NameDialog(
                 onValueChange = { name = it },
                 singleLine = true,
                 textStyle = BonyType.body.copy(color = BonyColors.Text),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(12.dp))
@@ -515,6 +612,58 @@ private fun NoteRow(
                 style = BonyType.metaDim.copy(color = BonyColors.TextMute),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+            if (checklist != null) {
+                ChecklistRegularPreview(noteId = note.id, checklist = checklist)
+            }
+        }
+    }
+}
+
+private const val CHECKLIST_COLLAPSED_PREVIEW_ITEMS = 3
+
+/** Read-only checklist preview for note rows; long lists have an inline expand/collapse control. */
+@Composable
+internal fun ChecklistRegularPreview(noteId: String, checklist: ChecklistData) {
+    if (checklist.items.isEmpty()) return
+    var expanded by remember(noteId) { mutableStateOf(false) }
+    val visibleItems = if (expanded) checklist.items else
+        checklist.items.take(CHECKLIST_COLLAPSED_PREVIEW_ITEMS)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp),
+    ) {
+        visibleItems.forEach { item ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (item.checked) "☑" else "☐",
+                    style = BonyType.meta.copy(
+                        color = if (item.checked) BonyColors.Accent else BonyColors.TextMute,
+                    ),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = item.text,
+                    style = BonyType.meta.copy(
+                        color = if (item.checked) BonyColors.TextMute else BonyColors.TextDim,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (checklist.items.size > CHECKLIST_COLLAPSED_PREVIEW_ITEMS) {
+            Text(
+                text = if (expanded) "⌃ show less" else "⌄ show ${checklist.items.size - CHECKLIST_COLLAPSED_PREVIEW_ITEMS} more",
+                style = BonyType.meta.copy(color = BonyColors.Accent),
+                modifier = Modifier
+                    .clickable { expanded = !expanded }
+                    .padding(vertical = 4.dp),
             )
         }
     }

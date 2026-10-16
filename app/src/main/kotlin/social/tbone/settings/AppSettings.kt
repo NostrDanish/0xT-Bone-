@@ -75,6 +75,8 @@ class AppSettings @Inject constructor(
         private val GEOHASH_NICKNAME = stringPreferencesKey("geohash_nickname")
         // Content filtering: blocked pubkeys, NSFW hiding, word bleep/hide.
         private val BLOCKED_PUBKEYS = stringSetPreferencesKey("blocked_pubkeys")
+        private val NOTE_MENU_MODERATION = booleanPreferencesKey("note_menu_moderation")
+        private val CLIENT_TAG_ENABLED = booleanPreferencesKey("client_tag_enabled")
         private val HIDE_NSFW = booleanPreferencesKey("hide_nsfw")
         private val BLEEP_WORDS = stringSetPreferencesKey("bleep_words")
         private val HIDE_WORDS = stringSetPreferencesKey("hide_words")
@@ -95,6 +97,7 @@ class AppSettings @Inject constructor(
         private val BLOSSOM_SERVERS = stringSetPreferencesKey("blossom_servers")
         private val BLOSSOM_DEFAULT_SERVER = stringPreferencesKey("blossom_default_server")
         private val BLOSSOM_COMPRESS = booleanPreferencesKey("blossom_compress")
+        private val BLOSSOM_AUDIO_COMPRESS = booleanPreferencesKey("blossom_audio_compress")
         // Nostr Wallet Connect — the connection secret is stored only as an
         // Android-Keystore-encrypted blob. The raw NWC URI is never persisted.
         private val NWC_ZAPS_ENABLED = booleanPreferencesKey("nwc_zaps_enabled")
@@ -198,6 +201,14 @@ class AppSettings @Inject constructor(
     private val _blockedPubkeys = MutableStateFlow<Set<String>>(emptySet())
     val blockedPubkeys = _blockedPubkeys.asStateFlow()
 
+    /** Show block/report actions in each note's overflow menu (off by default). */
+    private val _noteMenuModerationEnabled = MutableStateFlow(false)
+    val noteMenuModerationEnabled = _noteMenuModerationEnabled.asStateFlow()
+
+    /** Add the NIP-89 [client, T-Bone] tag when signing events (on by default). */
+    private val _clientTagEnabled = MutableStateFlow(true)
+    val clientTagEnabled = _clientTagEnabled.asStateFlow()
+
     /** Whether the content-filters screen is locked behind the parental pin. */
     private val _parentalPinEnabled = MutableStateFlow(false)
     val parentalPinEnabled = _parentalPinEnabled.asStateFlow()
@@ -239,6 +250,10 @@ class AppSettings @Inject constructor(
     /** Whether image/video uploads are compressed before sending. */
     private val _blossomCompress = MutableStateFlow(true)
     val blossomCompress = _blossomCompress.asStateFlow()
+
+    /** Audio transcoding is opt-in; original audio is uploaded by default. */
+    private val _blossomAudioCompress = MutableStateFlow(false)
+    val blossomAudioCompress = _blossomAudioCompress.asStateFlow()
 
     private val _nwcZapsEnabled = MutableStateFlow(false)
     val nwcZapsEnabled = _nwcZapsEnabled.asStateFlow()
@@ -295,6 +310,8 @@ class AppSettings @Inject constructor(
                 _geohashChannels.value = prefs[GEOHASH_CHANNELS]?.let { GeohashChannelStore.decode(it) } ?: emptyList()
                 _geohashNickname.value = prefs[GEOHASH_NICKNAME] ?: ""
                 _blockedPubkeys.value = prefs[BLOCKED_PUBKEYS] ?: emptySet()
+                _noteMenuModerationEnabled.value = prefs[NOTE_MENU_MODERATION] ?: false
+                _clientTagEnabled.value = prefs[CLIENT_TAG_ENABLED] ?: true
                 _hideNsfw.value = prefs[HIDE_NSFW] ?: false
                 _bleepWords.value = prefs[BLEEP_WORDS] ?: emptySet()
                 _hideWords.value = prefs[HIDE_WORDS] ?: emptySet()
@@ -314,6 +331,7 @@ class AppSettings @Inject constructor(
                     prefs[BLOSSOM_DEFAULT_SERVER]?.let { BlossomServerUrl.normalize(it) }
                         ?.takeIf { it in storedServers }
                 _blossomCompress.value = prefs[BLOSSOM_COMPRESS] ?: true
+                _blossomAudioCompress.value = prefs[BLOSSOM_AUDIO_COMPRESS] ?: false
                 _nwcZapsEnabled.value = prefs[NWC_ZAPS_ENABLED] ?: false
                 _nwcZapAmountSats.value = ZapAmounts.validOrDefault(prefs[NWC_ZAP_AMOUNT_SATS])
                 _nwcZapAmounts.value = ZapAmounts.parse(prefs[NWC_ZAP_AMOUNTS])
@@ -505,6 +523,21 @@ class AppSettings @Inject constructor(
     suspend fun setBlossomCompress(enabled: Boolean) {
         _blossomCompress.value = enabled
         dataStore.edit { it[BLOSSOM_COMPRESS] = enabled }
+    }
+
+    suspend fun setBlossomAudioCompress(enabled: Boolean) {
+        _blossomAudioCompress.value = enabled
+        dataStore.edit { it[BLOSSOM_AUDIO_COMPRESS] = enabled }
+    }
+
+    suspend fun setNoteMenuModerationEnabled(enabled: Boolean) {
+        _noteMenuModerationEnabled.value = enabled
+        dataStore.edit { it[NOTE_MENU_MODERATION] = enabled }
+    }
+
+    suspend fun setClientTagEnabled(enabled: Boolean) {
+        _clientTagEnabled.value = enabled
+        dataStore.edit { it[CLIENT_TAG_ENABLED] = enabled }
     }
 
     // ── Nostr Wallet Connect ─────────────────────────────────────────────────

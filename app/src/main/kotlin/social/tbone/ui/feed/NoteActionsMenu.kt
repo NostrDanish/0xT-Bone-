@@ -1,5 +1,6 @@
 package social.tbone.ui.feed
 
+import android.content.ClipData
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -10,9 +11,11 @@ import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -20,12 +23,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.TextFields
@@ -34,12 +41,15 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,11 +64,19 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
+import androidx.core.content.FileProvider
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import social.tbone.nostr.Event
 import social.tbone.nostr.Nip19
+import social.tbone.nostr.Nip56ReportReason
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
 
@@ -72,13 +90,22 @@ private val PrettyEventJson: Json = Json {
 @Composable
 fun NoteActionsMenu(
     event: Event,
+    authorName: String? = null,
     modifier: Modifier = Modifier,
+    viewModel: NoteActionsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+    val moderationActionsEnabled by viewModel.moderationActionsEnabled.collectAsStateWithLifecycle()
     var expanded by remember(event.id) { mutableStateOf(false) }
     var rawJson by remember(event.id) { mutableStateOf<String?>(null) }
     var showRawJson by remember(event.id) { mutableStateOf(false) }
+    var showReportDialog by remember(event.id) { mutableStateOf(false) }
+    var showBlockDialog by remember(event.id) { mutableStateOf(false) }
+    var selectedReportReason by remember(event.id) { mutableStateOf<Nip56ReportReason?>(null) }
+    var reportComment by remember(event.id) { mutableStateOf("") }
+    var creatingCard by remember(event.id) { mutableStateOf(false) }
 
     val nevent = remember(event.id, event.pubkey, event.kind) {
         runCatching { Nip19.hexToNevent(event.id, event.pubkey, event.kind) }
@@ -88,17 +115,17 @@ fun NoteActionsMenu(
     Box(modifier = modifier) {
         Box(
             modifier = Modifier
-                .size(32.dp)
+                .size(44.dp)
                 .clip(CircleShape)
                 .clickable(role = Role.Button) { expanded = true },
             contentAlignment = Alignment.Center,
         ) {
             Canvas(
                 modifier = Modifier
-                    .size(18.dp)
+                    .size(24.dp)
                     .semantics { contentDescription = "More note actions" },
             ) {
-                val radius = 1.45.dp.toPx()
+                val radius = 2.15.dp.toPx()
                 val centerX = size.width / 2f
                 val centerY = size.height / 2f
                 val sideOffset = size.width * 0.22f
@@ -125,10 +152,6 @@ fun NoteActionsMenu(
                     rawJson = PrettyEventJson.encodeToString(Event.serializer(), event)
                     showRawJson = true
                 }
-                NoteActionMenuItem(Icons.Outlined.ContentCopy, "Copy JSON") {
-                    expanded = false
-                    copyText(context, clipboard, PrettyEventJson.encodeToString(Event.serializer(), event), "JSON")
-                }
                 NoteActionMenuItem(Icons.Outlined.TextFields, "Copy note text") {
                     expanded = false
                     copyText(context, clipboard, event.content, "Note text")
@@ -140,6 +163,52 @@ fun NoteActionsMenu(
                         putExtra(Intent.EXTRA_TEXT, "nostr:$nevent")
                     }
                     context.startSafely(Intent.createChooser(send, "Share Nostr event"))
+                }
+                NoteActionMenuItem(Icons.Outlined.Image, if (creatingCard) "Creating card…" else "Share as card") {
+                    if (!creatingCard) {
+                        expanded = false
+                        creatingCard = true
+                        scope.launch {
+                            val result = runCatching {
+                                withContext(Dispatchers.IO) {
+                                    NoteShareCardGenerator.render(context, event, authorName)
+                                }
+                            }
+                            result.onSuccess { file ->
+                                runCatching {
+                                    val uri = FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.fileprovider",
+                                        file,
+                                    )
+                                    val send = Intent(Intent.ACTION_SEND).apply {
+                                        type = "image/png"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        clipData = ClipData.newUri(context.contentResolver, "T-Bone note card", uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startSafely(
+                                        Intent.createChooser(send, "Share note card").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                                    )
+                                }.onFailure {
+                                    Toast.makeText(context, "Could not share note card", Toast.LENGTH_SHORT).show()
+                                }
+                            }.onFailure {
+                                Toast.makeText(context, it.message ?: "Could not create note card", Toast.LENGTH_LONG).show()
+                            }
+                            creatingCard = false
+                        }
+                    }
+                }
+                if (moderationActionsEnabled) {
+                    NoteActionMenuItem(Icons.Outlined.Block, "Block poster") {
+                        expanded = false
+                        showBlockDialog = true
+                    }
+                    NoteActionMenuItem(Icons.Outlined.Flag, "Report note") {
+                        expanded = false
+                        showReportDialog = true
+                    }
                 }
                 NoteActionMenuItem(Icons.Outlined.OpenInBrowser, "Open on Njump") {
                     expanded = false
@@ -153,6 +222,99 @@ fun NoteActionsMenu(
                 }
             }
         }
+    }
+
+    if (showBlockDialog) {
+        AlertDialog(
+            onDismissRequest = { showBlockDialog = false },
+            containerColor = BonyColors.Surface,
+            titleContentColor = BonyColors.Text,
+            textContentColor = BonyColors.TextDim,
+            title = { Text("Block poster?", style = BonyType.body.copy(color = BonyColors.Text)) },
+            text = {
+                Text(
+                    "This adds them to your active mute list. Online lists publish a NIP-51 update; offline lists stay on this device.",
+                    style = BonyType.meta.copy(color = BonyColors.TextDim),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBlockDialog = false
+                    viewModel.blockAuthor(event.pubkey) { message ->
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    }
+                }) { Text("BLOCK", color = BonyColors.Danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBlockDialog = false }) {
+                    Text("CANCEL", color = BonyColors.TextMute)
+                }
+            },
+        )
+    }
+
+    if (showReportDialog) {
+        AlertDialog(
+            onDismissRequest = { showReportDialog = false },
+            containerColor = BonyColors.Surface,
+            titleContentColor = BonyColors.Text,
+            textContentColor = BonyColors.TextDim,
+            title = { Text("Report note", style = BonyType.body.copy(color = BonyColors.Text)) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 480.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        "NIP-56 reports are public. Choose a reason; an optional explanation is included in the report.",
+                        style = BonyType.meta.copy(color = BonyColors.TextDim),
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    )
+                    Nip56ReportReason.entries.forEach { reason ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedReportReason = reason }
+                                .padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = selectedReportReason == reason,
+                                onClick = { selectedReportReason = reason },
+                            )
+                            Text(reason.label, style = BonyType.meta.copy(color = BonyColors.Text))
+                        }
+                    }
+                    OutlinedTextField(
+                        value = reportComment,
+                        onValueChange = { reportComment = it },
+                        label = { Text("Additional context") },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = selectedReportReason != null,
+                    onClick = {
+                        val reason = selectedReportReason ?: return@TextButton
+                        showReportDialog = false
+                        viewModel.reportNote(event, reason, reportComment) { message ->
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        }
+                    },
+                ) { Text("REPORT", color = BonyColors.Danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReportDialog = false }) {
+                    Text("CANCEL", color = BonyColors.TextMute)
+                }
+            },
+        )
     }
 
     if (showRawJson) {

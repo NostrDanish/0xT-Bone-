@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.input.KeyboardCapitalization
 
 /**
  * Text fields.
@@ -40,7 +41,7 @@ public fun YouniversalTextField(
     trailingIcon: ImageVector? = null,
     isError: Boolean = false,
     singleLine: Boolean = true,
-    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardOptions: KeyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     shape: Shape = MaterialTheme.shapes.medium,
 ) {
@@ -91,7 +92,7 @@ public fun YouniversalOutlinedTextField(
     trailingIcon: ImageVector? = null,
     isError: Boolean = false,
     singleLine: Boolean = true,
-    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardOptions: KeyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     shape: Shape = MaterialTheme.shapes.medium,
 ) {

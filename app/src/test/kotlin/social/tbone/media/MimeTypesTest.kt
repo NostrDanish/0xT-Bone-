@@ -21,6 +21,15 @@ class MimeTypesTest {
     }
 
     @Test
+    fun `normalizes MPEG audio MIME and extension aliases`() {
+        assertEquals("mp3", MimeTypes.extensionFor("audio/mpeg"))
+        assertEquals("mp3", MimeTypes.extensionFor("audio/mpga"))
+        assertEquals("mp3", MimeTypes.extensionFor("audio/x-mpeg"))
+        assertEquals("audio/mpeg", MimeTypes.mimeForExtension("mpga"))
+        assertEquals("audio/mpeg", MimeTypes.mimeForExtension("mpeg3"))
+    }
+
+    @Test
     fun `infers mime types from common video and audio extensions`() {
         assertEquals("video/x-matroska", MimeTypes.mimeForExtension("mkv"))
         assertEquals("video/x-msvideo", MimeTypes.mimeForExtension("avi"))

@@ -158,8 +158,9 @@ class ComposeViewModel @Inject constructor(
      * Uploads [uri] to Blossom and exposes the resulting URL via lastUploadUrl.
      *
      * The MIME type sent to the server describes the prepared bytes. Images
-     * are re-encoded as JPEG; audio is copied in its original format; videos
-     * are transcoded when possible and otherwise retain their original type.
+     * are re-encoded as JPEG; audio stays original unless its opt-in compressor
+     * produces a smaller AAC/M4A file; videos are transcoded when possible and
+     * otherwise retain their original type.
      */
     fun attachMedia(uri: Uri, kind: String) {
         if (kind !in setOf("image", "video", "audio") || _uiState.value.isUploading) return
@@ -174,7 +175,11 @@ class ComposeViewModel @Inject constructor(
                 val prepared = when (kind) {
                     "image" -> MediaProcessor.prepareImageMedia(context, uri, compress = compress)
                     "video" -> MediaProcessor.prepareVideoMedia(context, uri, compress = compress)
-                    "audio" -> MediaProcessor.prepareAudioMedia(context, uri)
+                    "audio" -> MediaProcessor.prepareAudioMedia(
+                        context,
+                        uri,
+                        compress = appSettings.blossomAudioCompress.value,
+                    )
                     else -> null
                 } ?: error("could not read ${kind} media")
                 val label = when (kind) {

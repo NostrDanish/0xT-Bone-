@@ -51,6 +51,12 @@ interface CalendarEventDao {
     @Query("SELECT * FROM calendar_events WHERE id = :id")
     suspend fun getById(id: String): CalendarEventEntity?
 
+    @Query("SELECT * FROM calendar_events ORDER BY startMillis ASC")
+    suspend fun getAll(): List<CalendarEventEntity>
+
+    @Query("DELETE FROM calendar_events")
+    suspend fun deleteAll()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(event: CalendarEventEntity)
 

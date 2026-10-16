@@ -13,10 +13,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
@@ -45,10 +45,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.youniversal.theme.YouniversalTheme
 import social.tbone.nostr.Event
 import social.tbone.nostr.quotedEventId
 import social.tbone.nostr.relay.RelayStatus
@@ -429,6 +433,13 @@ private fun FeedTabStrip(
     currentFeed: FeedTab,
     onSwitch: (FeedTab) -> Unit,
 ) {
+    val youniversal = YouniversalTheme.enabled
+    val effectiveFontScale = LocalDensity.current.fontScale
+    val youniversalLabelSize = when {
+        effectiveFontScale >= 2.2f -> 8.5f.sp
+        effectiveFontScale >= 1.6f -> 9.5f.sp
+        else -> 10.5f.sp
+    }
     Box(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -449,14 +460,20 @@ private fun FeedTabStrip(
                             width = 1.dp, color = BonyColors.Accent,
                             shape = tabShape,
                         ) else Modifier)
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .heightIn(min = 46.dp)
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
                         text = label,
                         style = BonyType.tag.copy(
+                            fontSize = if (youniversal) youniversalLabelSize else BonyType.tag.fontSize,
+                            letterSpacing = if (youniversal) 0.4.sp else BonyType.tag.letterSpacing,
                             color = if (active) BonyColors.Accent else BonyColors.TextMute,
                         ),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

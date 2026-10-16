@@ -66,6 +66,9 @@ class SettingsViewModel @Inject constructor(
     val screenshotBlockEnabled: StateFlow<Boolean> = appSettings.screenshotBlockEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
+    val noteMenuModerationEnabled: StateFlow<Boolean> = appSettings.noteMenuModerationEnabled
+    val clientTagEnabled: StateFlow<Boolean> = appSettings.clientTagEnabled
+
     val imageLoadMode: StateFlow<ImageLoadMode> = appSettings.imageLoadMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ImageLoadMode.ON)
 
@@ -102,6 +105,15 @@ class SettingsViewModel @Inject constructor(
     val blossomServers: StateFlow<Set<String>> = appSettings.blossomServers
     val blossomDefaultServer: StateFlow<String?> = appSettings.blossomDefaultServer
     val blossomCompress: StateFlow<Boolean> = appSettings.blossomCompress
+    val blossomAudioCompress: StateFlow<Boolean> = appSettings.blossomAudioCompress
+
+    fun setNoteMenuModerationEnabled(enabled: Boolean) {
+        viewModelScope.launch { appSettings.setNoteMenuModerationEnabled(enabled) }
+    }
+
+    fun setClientTagEnabled(enabled: Boolean) {
+        viewModelScope.launch { appSettings.setClientTagEnabled(enabled) }
+    }
 
     fun addBlossomServer(url: String) {
         viewModelScope.launch { appSettings.addBlossomServer(url) }
@@ -117,6 +129,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setBlossomCompress(enabled: Boolean) {
         viewModelScope.launch { appSettings.setBlossomCompress(enabled) }
+    }
+
+    fun setBlossomAudioCompress(enabled: Boolean) {
+        viewModelScope.launch { appSettings.setBlossomAudioCompress(enabled) }
     }
 
     // ── screen time (parental) ───────────────────────────────────────────────

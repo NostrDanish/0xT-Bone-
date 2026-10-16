@@ -7,9 +7,12 @@ import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.effect.Presentation
+import androidx.media3.transformer.Codec
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
@@ -54,7 +57,8 @@ data class PreparedMedia(
  *  - VIDEOS: optionally transcoded with Media3 Transformer (re-encode also
  *    drops embedded metadata); unsupported sources fall back to a raw copy
  *    with their original MIME type and extension.
- *  - AUDIO: copied unchanged with its detected audio MIME type and extension.
+ *  - AUDIO: copied unchanged by default; opt-in AAC/M4A compression is kept only
+ *    when smaller, otherwise the original bytes, MIME type and extension win.
  *
  * Every entry point returns a [PreparedMedia] so callers always know the true
  * MIME type and extension of the prepared file.
@@ -73,6 +77,8 @@ object MediaProcessor {
     /** MIME + extension of the Media3 transcode output (always MP4). */
     private const val VIDEO_MIME = "video/mp4"
     private const val VIDEO_EXT = "mp4"
+    private const val AUDIO_COMPRESSED_MIME = "audio/mp4"
+    private const val AUDIO_COMPRESSED_EXT = "m4a"
 
     /** Re-encodes an image URI to a clean JPEG and reports it as such. */
     suspend fun prepareImageMedia(
@@ -121,23 +127,64 @@ object MediaProcessor {
         }
     }
 
-    /** Copies an audio file unchanged so its container/codec remain intact. */
-    suspend fun prepareAudioMedia(context: Context, uri: Uri): PreparedMedia? {
-        val (declaredMime, nameExtension) = withContext(Dispatchers.IO) {
-            sourceMimeOf(context, uri)?.takeIf { MimeTypes.isAudio(it) } to
-                MimeTypes.extensionFromFileName(sourceNameOf(context, uri))
+    /**
+     * Prepares audio for upload. Compression is opt-in: when disabled, source
+     * bytes (including MP3) are copied unchanged. When enabled, Media3 creates
+     * a compact AAC/M4A rendition; unsupported inputs fall back to the original.
+     */
+    suspend fun prepareAudioMedia(
+        context: Context,
+        uri: Uri,
+        compress: Boolean = false,
+    ): PreparedMedia? {
+        val (declaredMime, nameExtension, sourceSize) = withContext(Dispatchers.IO) {
+            Triple(
+                sourceMimeOf(context, uri)?.takeIf { MimeTypes.isAudio(it) },
+                MimeTypes.extensionFromFileName(sourceNameOf(context, uri)),
+                sourceSizeOf(context, uri),
+            )
         }
         val inferredMime = MimeTypes.mimeForExtension(nameExtension)?.takeIf { MimeTypes.isAudio(it) }
-        val mime = inferredMime ?: declaredMime ?: return null
-        val extension = nameExtension.takeIf { inferredMime != null }
-            ?: MimeTypes.extensionFor(mime).ifBlank { return null }
+        val sourceMime = inferredMime ?: declaredMime ?: return null
+        val sourceExtension = nameExtension.takeIf { inferredMime != null }
+            ?: MimeTypes.extensionFor(sourceMime).ifBlank { return null }
 
-        val file = if (uri.scheme == "file") {
+        // A few document providers omit OpenableColumns.SIZE. Copy those sources
+        // once so the comparison uses their real byte count and a failed or
+        // unhelpful transcode can still fall back to the exact original bytes.
+        val comparisonCopy = if (compress && sourceSize <= 0L) {
+            copyToCache(context, uri, sourceExtension, "tbone_audio")
+        } else null
+        val comparisonSize = comparisonCopy?.length()?.takeIf { it > 0L } ?: sourceSize
+        val transcodeUri = comparisonCopy?.let { Uri.fromFile(it) } ?: uri
+
+        if (compress) {
+            val transcoded = try {
+                transcodeAudio(context, transcodeUri)
+            } catch (cancelled: CancellationException) {
+                comparisonCopy?.delete()
+                throw cancelled
+            } catch (error: Exception) {
+                Timber.w(error, "audio transcode unavailable; uploading original file")
+                null
+            }
+            if (transcoded != null && transcoded.exists() && transcoded.length() > 0L) {
+                // Never make a file larger just because compression was requested.
+                if (comparisonSize <= 0L || transcoded.length() < comparisonSize) {
+                    comparisonCopy?.delete()
+                    return PreparedMedia(transcoded, AUDIO_COMPRESSED_MIME, AUDIO_COMPRESSED_EXT)
+                }
+                transcoded.delete()
+            }
+            comparisonCopy?.let { return PreparedMedia(it, sourceMime, sourceExtension) }
+        }
+
+        val original = if (uri.scheme == "file") {
             uri.path?.let(::File)?.takeIf { it.exists() && it.length() > 0L }
         } else {
-            copyToCache(context, uri, extension, "tbone_audio")
+            copyToCache(context, uri, sourceExtension, "tbone_audio")
         } ?: return null
-        return PreparedMedia(file, mime, extension)
+        return PreparedMedia(original, sourceMime, sourceExtension)
     }
 
     /** The MIME type the content resolver reports for [uri] (may be null). */
@@ -162,6 +209,22 @@ object MediaProcessor {
         }.getOrNull()
         return name ?: uri.lastPathSegment?.substringAfterLast('/')
     }
+
+    private fun sourceSizeOf(context: Context, uri: Uri): Long = runCatching {
+        if (uri.scheme == "file") {
+            uri.path?.let(::File)?.takeIf { it.exists() }?.length() ?: -1L
+        } else {
+            context.contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.SIZE),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else -1L
+            } ?: -1L
+        }
+    }.getOrDefault(-1L)
 
     private fun videoSourceType(context: Context, uri: Uri): Pair<String, String> {
         val declaredMime = sourceMimeOf(context, uri)
@@ -253,6 +316,65 @@ object MediaProcessor {
             bmp.recycle()
             out
         }.getOrNull()
+    }
+
+    @OptIn(androidx.media3.common.util.UnstableApi::class)
+    private suspend fun transcodeAudio(context: Context, uri: Uri): File? {
+        val out = File(context.cacheDir, "tbone_audio_comp_${System.currentTimeMillis()}.m4a")
+        val edited = EditedMediaItem.Builder(MediaItem.fromUri(uri))
+            .setRemoveVideo(true)
+            .setRemoveAudio(false)
+            .build()
+        val composition = Composition.Builder(EditedMediaItemSequence(edited)).build()
+        val defaultEncoderFactory = DefaultEncoderFactory.Builder(context).build()
+        // Media3 1.4 exposes bitrate on the requested audio Format, while the
+        // newer AudioEncoderSettings convenience API is not in this version.
+        // Wrap its factory so AAC is encoded at a modest voice-note bitrate.
+        val encoderFactory = object : Codec.EncoderFactory {
+            override fun createForAudioEncoding(inputFormat: Format): Codec =
+                defaultEncoderFactory.createForAudioEncoding(
+                    inputFormat.buildUpon().setAverageBitrate(64_000).build(),
+                )
+
+            override fun createForVideoEncoding(inputFormat: Format): Codec =
+                defaultEncoderFactory.createForVideoEncoding(inputFormat)
+
+            override fun audioNeedsEncoding(): Boolean = true
+
+            override fun videoNeedsEncoding(): Boolean = defaultEncoderFactory.videoNeedsEncoding()
+        }
+
+        return suspendCancellableCoroutine { cont ->
+            val transformer = Transformer.Builder(context)
+                .setAudioMimeType(androidx.media3.common.MimeTypes.AUDIO_AAC)
+                .setEncoderFactory(encoderFactory)
+                .addListener(object : Transformer.Listener {
+                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                        if (cont.isActive) cont.resume(out) else out.delete()
+                    }
+
+                    override fun onError(
+                        composition: Composition,
+                        exportResult: ExportResult,
+                        exportException: ExportException,
+                    ) {
+                        Timber.w(exportException, "audio transcode failed")
+                        out.delete()
+                        if (cont.isActive) cont.resumeWithException(exportException)
+                    }
+                })
+                .build()
+            runCatching {
+                transformer.start(composition, out.absolutePath)
+            }.onFailure {
+                out.delete()
+                if (cont.isActive) cont.resumeWithException(it)
+            }
+            cont.invokeOnCancellation {
+                transformer.cancel()
+                out.delete()
+            }
+        }
     }
 
     private suspend fun transcodeVideo(context: Context, uri: Uri): File? {

@@ -44,6 +44,12 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE id = :id")
     suspend fun getById(id: String): NoteEntity?
 
+    @Query("SELECT * FROM notes ORDER BY pinned DESC, sortOrder ASC, updatedAt DESC")
+    suspend fun getAll(): List<NoteEntity>
+
+    @Query("DELETE FROM notes")
+    suspend fun deleteAll()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(note: NoteEntity)
 

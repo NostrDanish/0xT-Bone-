@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.first
 import social.tbone.account.AccountRepository
 import social.tbone.account.SignerType
 import social.tbone.nostr.relay.RelayPool
+import social.tbone.settings.AppSettings
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -15,6 +16,7 @@ class NostrSignerFactory @Inject constructor(
     private val amberBridge: AmberSignerBridge,
     private val pool: RelayPool,
     private val signingIndicator: SigningIndicator,
+    private val appSettings: AppSettings,
     @ApplicationContext private val context: Context,
 ) {
     /**
@@ -23,7 +25,7 @@ class NostrSignerFactory @Inject constructor(
      */
     suspend fun forActiveAccount(): NostrSigner? {
         val account = accountRepository.activeAccount.first() ?: return null
-        return when (account.signerType) {
+        val inner = when (account.signerType) {
             SignerType.AMBER ->
                 AmberSigner(account.pubkey, amberBridge, context.packageName)
 
@@ -42,5 +44,8 @@ class NostrSignerFactory @Inject constructor(
                 NsecBunkerSigner(account.pubkey, config, pool, sessionSigner, signingIndicator)
             }
         }
+        // Match Amethyst's NIP-89 signer decorator: put the client tag into
+        // the template before the underlying signer computes the event id.
+        return ClientTaggingSigner(inner) { appSettings.clientTagEnabled.value }
     }
 }

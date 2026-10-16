@@ -441,6 +441,7 @@ fun NoteEditorScreen(
             placeholder = { Text("title", style = BonyType.meta.copy(color = BonyColors.TextMute)) },
             singleLine = true,
             textStyle = BonyType.body.copy(color = BonyColors.Text),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp, vertical = 8.dp),

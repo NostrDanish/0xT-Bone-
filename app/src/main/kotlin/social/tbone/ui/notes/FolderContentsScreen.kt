@@ -282,6 +282,9 @@ private fun FolderNoteRow(note: NoteUi, onClick: () -> Unit, onLongClick: () -> 
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (checklist != null) {
+                ChecklistRegularPreview(noteId = note.id, checklist = checklist)
+            }
         }
     }
 }

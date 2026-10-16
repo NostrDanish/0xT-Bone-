@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -63,6 +64,39 @@ private enum class TimeTarget { START, END }
  * (AES-256-GCM, Android Keystore) before being stored. Saves on the save
  * button and again when leaving with content, so nothing is lost.
  */
+private data class CalendarEditorForm(
+    val title: String = "",
+    val description: String = "",
+    val eventDate: LocalDate = LocalDate.now(ZoneId.systemDefault()),
+    val startTime: LocalTime = LocalTime.now().withSecond(0).withNano(0),
+    val endTime: LocalTime = LocalTime.now().plusHours(1).withSecond(0).withNano(0),
+    val allDay: Boolean = false,
+    val repeatUnit: RepeatUnit = RepeatUnit.NONE,
+    val repeatInterval: Int = 1,
+    val repeatEndDate: LocalDate? = null,
+)
+
+private fun eventStartMillis(form: CalendarEditorForm): Long =
+    if (form.allDay) form.eventDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    else form.eventDate.atTime(form.startTime).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+private fun eventEndMillis(form: CalendarEditorForm): Long {
+    if (form.allDay) {
+        return form.eventDate.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    }
+    val zone = ZoneId.systemDefault()
+    val end = if (form.endTime > form.startTime) form.eventDate.atTime(form.endTime)
+        else form.eventDate.plusDays(1).atTime(form.endTime)
+    return end.atZone(zone).toInstant().toEpochMilli()
+}
+
+/**
+ * Full-screen calendar event editor. Add events to any minute of any day of
+ * any year (1990–2050): the date row opens a smooth month/day picker, the
+ * time rows open an analog clock picker. Title + description are encrypted
+ * (AES-256-GCM, Android Keystore) before being stored. Saves on the save
+ * button and again when leaving with content, so nothing is lost.
+ */
 @Composable
 fun CalendarEventEditorScreen(
     id: String,
@@ -70,28 +104,19 @@ fun CalendarEventEditorScreen(
     onBack: () -> Unit,
     viewModel: CalendarViewModel = hiltViewModel(),
 ) {
-
     val encryptionVerified by viewModel.encryptionVerified.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
 
-    var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var eventDate by remember { mutableStateOf(LocalDate.now(ZoneId.systemDefault())) }
-    var startTime by remember { mutableStateOf(LocalTime.now().withSecond(0).withNano(0)) }
-    var endTime by remember { mutableStateOf(LocalTime.now().plusHours(1).withSecond(0).withNano(0)) }
-    var allDay by remember { mutableStateOf(false) }
+    var form by remember { mutableStateOf(CalendarEditorForm()) }
     var savedId by remember { mutableStateOf<String?>(if (id.isBlank()) null else id) }
-    var loaded by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
     var showPermDialog by remember { mutableStateOf(false) }
-    // Recurrence.
-    var repeatUnit by remember { mutableStateOf(RepeatUnit.NONE) }
-    var repeatInterval by remember { mutableStateOf(1) }
-    var repeatEndDate by remember { mutableStateOf<java.time.LocalDate?>(null) }
     var showRepeatPicker by remember { mutableStateOf(false) }
     var showEndDatePicker by remember { mutableStateOf(false) }
-    // Guard against double-save (see performSave).
     var saveInFlight by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var clockTarget by remember { mutableStateOf<TimeTarget?>(null) }
+
     val context = LocalContext.current
     val permPromptDone = remember {
         context.getSharedPreferences("tbone_calendar", Context.MODE_PRIVATE)
@@ -101,52 +126,37 @@ fun CalendarEventEditorScreen(
         ActivityResultContracts.RequestPermission()
     ) { }
 
-    var showDatePicker by remember { mutableStateOf(false) }
-    var clockTarget by remember { mutableStateOf<TimeTarget?>(null) }
-
-    // Load the existing event (if editing).
     LaunchedEffect(id, dateMillis) {
         if (id.isNotBlank()) {
             viewModel.getEvent(id)?.let { event ->
-                title = event.title
-                description = event.description
-                val z = ZoneId.systemDefault()
-                val start = Instant.ofEpochMilli(event.startMillis).atZone(z)
-                eventDate = start.toLocalDate()
-                startTime = start.toLocalTime()
-                endTime = Instant.ofEpochMilli(event.endMillis).atZone(z).toLocalTime()
-                allDay = event.allDay
-                repeatUnit = event.repeatUnit
-                repeatInterval = event.repeatInterval
-                repeatEndDate = event.repeatEndMillis?.let {
-                    java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
-                }
+                val zone = ZoneId.systemDefault()
+                val start = Instant.ofEpochMilli(event.startMillis).atZone(zone)
+                form = form.copy(
+                    title = event.title,
+                    description = event.description,
+                    eventDate = start.toLocalDate(),
+                    startTime = start.toLocalTime(),
+                    endTime = Instant.ofEpochMilli(event.endMillis).atZone(zone).toLocalTime(),
+                    allDay = event.allDay,
+                    repeatUnit = event.repeatUnit,
+                    repeatInterval = event.repeatInterval,
+                    repeatEndDate = event.repeatEndMillis?.let {
+                        Instant.ofEpochMilli(it).atZone(zone).toLocalDate()
+                    },
+                )
                 savedId = event.id
             }
         } else if (dateMillis > 0) {
-            eventDate = Instant.ofEpochMilli(dateMillis).atZone(ZoneId.systemDefault()).toLocalDate()
+            form = form.copy(
+                eventDate = Instant.ofEpochMilli(dateMillis).atZone(ZoneId.systemDefault()).toLocalDate(),
+            )
         }
-        loaded = true
-    }
-
-    fun startMillis(): Long =
-        if (allDay) eventDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        else eventDate.atTime(startTime).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-
-    fun endMillis(): Long {
-        if (allDay) {
-            return eventDate.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        }
-        val z = ZoneId.systemDefault()
-        val end = if (endTime > startTime) eventDate.atTime(endTime) else eventDate.plusDays(1).atTime(endTime)
-        return end.atZone(z).toInstant().toEpochMilli()
     }
 
     fun performSave() {
-        if (title.isBlank()) return
-        // Re-entrancy guard: save can fire from the button AND from leaving
-        // the screen. Reserve the row id synchronously so a second call
-        // upserts the SAME row instead of creating a duplicate event.
+        if (form.title.isBlank()) return
+        // Re-entrancy guard: reserve the row id synchronously so a second save
+        // upserts the same row rather than creating a duplicate event.
         if (saveInFlight) return
         saveInFlight = true
         val isNew = savedId.isNullOrBlank()
@@ -154,22 +164,21 @@ fun CalendarEventEditorScreen(
         val targetId = savedId!!
         viewModel.saveEvent(
             id = targetId,
-            title = title,
-            description = description,
-            startMillis = startMillis(),
-            endMillis = endMillis(),
-            allDay = allDay,
-            repeatUnit = repeatUnit,
-            repeatInterval = repeatInterval,
-            repeatEndMillis = repeatEndDate
-                ?.atStartOfDay(java.time.ZoneId.systemDefault())
+            title = form.title,
+            description = form.description,
+            startMillis = eventStartMillis(form),
+            endMillis = eventEndMillis(form),
+            allDay = form.allDay,
+            repeatUnit = form.repeatUnit,
+            repeatInterval = form.repeatInterval,
+            repeatEndMillis = form.repeatEndDate
+                ?.atStartOfDay(ZoneId.systemDefault())
                 ?.toInstant()?.toEpochMilli(),
         ) { newId ->
             savedId = newId
             saved = true
             saveInFlight = false
-            // First event saved since the update -> offer the reminder
-            // permissions (notifications + exact alarms) in a popup.
+            // Offer reminder permissions once, after the first saved event.
             if (isNew && !permPromptDone) {
                 context.getSharedPreferences("tbone_calendar", Context.MODE_PRIVATE)
                     .edit().putBoolean("perm_prompt_done", true).apply()
@@ -197,240 +206,43 @@ fun CalendarEventEditorScreen(
             .imePadding()
             .navigationBarsPadding(),
     ) {
-        // ── Top bar: back · title · save (and delete when editing) ────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "←",
-                style = BonyType.body.copy(color = BonyColors.TextMute),
-                modifier = Modifier.clickable { back() },
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = if (savedId == null) "new event" else "event",
-                style = BonyType.body.copy(color = BonyColors.Text),
-                modifier = Modifier.weight(1f),
-            )
-            if (savedId != null) {
-                Text(
-                    text = "delete",
-                    style = BonyType.tag.copy(color = BonyColors.Danger),
-                    modifier = Modifier
-                        .appBorder(1.dp, BonyColors.Danger)
-                        .clickable {
-                            savedId?.let { viewModel.deleteEvent(it) }
-                            onBack()
-                        }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-            }
-            Text(
-                text = "save",
-                style = BonyType.tag.copy(
-                    color = if (encryptionVerified) BonyColors.Accent else BonyColors.TextMute,
-                ),
-                modifier = Modifier
-                    .appBorder(1.dp, if (encryptionVerified) BonyColors.AccentDim else BonyColors.Rule)
-                    // Save always closes the editor — even when there's nothing
-                    // new to save (performSave no-ops on blank/unchanged).
-                    .clickable(enabled = encryptionVerified) {
-                        performSave()
-                        back()
-                    }
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-            )
-        }
-        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
-
-        if (error != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(BonyColors.Danger.copy(alpha = 0.12f))
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
-            ) {
-                Text(text = error.orEmpty(), style = BonyType.meta.copy(color = BonyColors.Danger))
-            }
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-        ) {
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                placeholder = { Text("event title", style = BonyType.meta.copy(color = BonyColors.TextMute)) },
-                singleLine = true,
-                textStyle = BonyType.body.copy(color = BonyColors.Text),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = description,
-                onValueChange = { description = it },
-                placeholder = { Text("notes…", style = BonyType.meta.copy(color = BonyColors.TextMute)) },
-                minLines = 3,
-                textStyle = BonyType.body.copy(color = BonyColors.Text),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(12.dp))
-
-            // ── Date row → date picker ─────────────────────────────────────────
-            FieldRow("date", formatDateLong(eventDate)) { showDatePicker = true }
-
-            // ── All-day toggle ─────────────────────────────────────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "all day",
-                    style = BonyType.meta.copy(color = BonyColors.Text),
-                    modifier = Modifier.weight(1f),
-                )
-                Box(
-                    modifier = Modifier
-                        .size(36.dp, 22.dp)
-                        .background(if (allDay) BonyColors.AccentBg else BonyColors.Bg)
-                        .appBorder(1.dp, if (allDay) BonyColors.Accent else BonyColors.RuleStrong)
-                        .clickable { allDay = !allDay }
-                        .padding(2.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(16.dp)
-                            .align(if (allDay) Alignment.CenterEnd else Alignment.CenterStart)
-                            .background(if (allDay) BonyColors.Accent else BonyColors.TextMute),
-                    )
-                }
-            }
-
-            // ── Repeat row → repeat picker ─────────────────────────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .appBorder(1.dp, BonyColors.Rule)
-                    .clickable { showRepeatPicker = true }
-                    .padding(horizontal = 14.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "repeat",
-                    style = BonyType.meta.copy(color = BonyColors.TextMute),
-                    modifier = Modifier.weight(0.35f),
-                )
-                Text(
-                    text = if (repeatUnit == RepeatUnit.NONE) "never" else
-                        (if (repeatInterval == 1) "every ${repeatUnit.label.dropLast(1)}"
-                        else "every $repeatInterval ${repeatUnit.label}"),
-                    style = BonyType.body.copy(color = BonyColors.Accent),
-                    modifier = Modifier.weight(1f),
-                )
-                Text(text = "›", style = BonyType.body.copy(color = BonyColors.TextMute))
-            }
-            // ── Ends row (only when repeating) ─────────────────────────────────
-            if (repeatUnit != RepeatUnit.NONE) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .appBorder(1.dp, BonyColors.Rule)
-                        .clickable { showEndDatePicker = true }
-                        .padding(horizontal = 14.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "ends",
-                        style = BonyType.meta.copy(color = BonyColors.TextMute),
-                        modifier = Modifier.weight(0.35f),
-                    )
-                    Text(
-                        text = repeatEndDate?.let { formatDateLong(it) } ?: "never",
-                        style = BonyType.body.copy(color = BonyColors.Accent),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(text = "›", style = BonyType.body.copy(color = BonyColors.TextMute))
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // ── Time rows → clock picker (hidden for all-day) ──────────────────
-            if (!allDay) {
-                FieldRow("start", formatTime(startMillis())) { clockTarget = TimeTarget.START }
-                FieldRow("end", formatTime(endMillis())) { clockTarget = TimeTarget.END }
-            }
-
-            Spacer(Modifier.height(8.dp))
-            LockBadge(label = "encrypted on device · AES-256-GCM")
-        }
-    }
-
-    // ── Overlays ──────────────────────────────────────────────────────────────
-    if (showDatePicker) {
-        MonthDayPicker(
-            initial = eventDate,
-            onSelect = { eventDate = it; showDatePicker = false },
-            onDismiss = { showDatePicker = false },
-        )
-    }
-    clockTarget?.let { target ->
-        ClockPicker(
-            initial = if (target == TimeTarget.START) startTime else endTime,
-            onConfirm = { time ->
-                if (target == TimeTarget.START) startTime = time else endTime = time
-                clockTarget = null
+        CalendarEditorTopBar(
+            savedId = savedId,
+            encryptionVerified = encryptionVerified,
+            onBack = { back() },
+            onDelete = {
+                savedId?.let { viewModel.deleteEvent(it) }
+                onBack()
             },
-            onDismiss = { clockTarget = null },
-        )
-    }
-
-    // End-date picker overlay (uses the same date picker as the event date),
-    // with a "no end date" button pinned under it.
-    if (showEndDatePicker) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            MonthDayPicker(
-                initial = repeatEndDate ?: eventDate,
-                onSelect = { repeatEndDate = it; showEndDatePicker = false },
-                onDismiss = { showEndDatePicker = false },
-            )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 40.dp)
-                    .appBorder(1.dp, BonyColors.RuleStrong)
-                    .background(BonyColors.Surface)
-                    .clickable { repeatEndDate = null; showEndDatePicker = false }
-                    .padding(horizontal = 18.dp, vertical = 12.dp),
-            ) {
-                Text(text = "no end date", style = BonyType.tag.copy(color = BonyColors.Accent))
-            }
-        }
-    }
-
-    // Repeat picker overlay.
-    if (showRepeatPicker) {
-        RepeatPickerOverlay(
-            unit = repeatUnit,
-            interval = repeatInterval,
-            onDismiss = { showRepeatPicker = false },
-            onApply = { unit, interval ->
-                repeatUnit = unit
-                repeatInterval = interval
-                showRepeatPicker = false
+            onSave = {
+                performSave()
+                back()
             },
         )
+        error?.let { CalendarEditorErrorBanner(it) }
+        CalendarEditorFields(
+            form = form,
+            onFormChange = { form = it },
+            onDateClick = { showDatePicker = true },
+            onRepeatClick = { showRepeatPicker = true },
+            onEndDateClick = { showEndDatePicker = true },
+            onStartTimeClick = { clockTarget = TimeTarget.START },
+            onEndTimeClick = { clockTarget = TimeTarget.END },
+        )
     }
+
+    CalendarEditorOverlays(
+        form = form,
+        onFormChange = { form = it },
+        showDatePicker = showDatePicker,
+        onShowDatePickerChange = { showDatePicker = it },
+        clockTarget = clockTarget,
+        onClockTargetChange = { clockTarget = it },
+        showEndDatePicker = showEndDatePicker,
+        onShowEndDatePickerChange = { showEndDatePicker = it },
+        showRepeatPicker = showRepeatPicker,
+        onShowRepeatPickerChange = { showRepeatPicker = it },
+    )
 
     // Reminder-permission popup (once, after the first saved event).
     if (showPermDialog) {
@@ -455,6 +267,270 @@ fun CalendarEventEditorScreen(
         )
     }
 }
+
+@Composable
+private fun CalendarEditorTopBar(
+    savedId: String?,
+    encryptionVerified: Boolean,
+    onBack: () -> Unit,
+    onDelete: () -> Unit,
+    onSave: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "←",
+            style = BonyType.body.copy(color = BonyColors.TextMute),
+            modifier = Modifier.clickable(onClick = onBack),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = if (savedId == null) "new event" else "event",
+            style = BonyType.body.copy(color = BonyColors.Text),
+            modifier = Modifier.weight(1f),
+        )
+        if (savedId != null) {
+            Text(
+                text = "delete",
+                style = BonyType.tag.copy(color = BonyColors.Danger),
+                modifier = Modifier
+                    .appBorder(1.dp, BonyColors.Danger)
+                    .clickable(onClick = onDelete)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(
+            text = "save",
+            style = BonyType.tag.copy(
+                color = if (encryptionVerified) BonyColors.Accent else BonyColors.TextMute,
+            ),
+            modifier = Modifier
+                .appBorder(1.dp, if (encryptionVerified) BonyColors.AccentDim else BonyColors.Rule)
+                .clickable(enabled = encryptionVerified, onClick = onSave)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
+}
+
+@Composable
+private fun CalendarEditorErrorBanner(message: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(BonyColors.Danger.copy(alpha = 0.12f))
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+    ) {
+        Text(text = message, style = BonyType.meta.copy(color = BonyColors.Danger))
+    }
+}
+
+@Composable
+private fun CalendarEditorFields(
+    form: CalendarEditorForm,
+    onFormChange: (CalendarEditorForm) -> Unit,
+    onDateClick: () -> Unit,
+    onRepeatClick: () -> Unit,
+    onEndDateClick: () -> Unit,
+    onStartTimeClick: () -> Unit,
+    onEndTimeClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        OutlinedTextField(
+            value = form.title,
+            onValueChange = { onFormChange(form.copy(title = it)) },
+            placeholder = { Text("event title", style = BonyType.meta.copy(color = BonyColors.TextMute)) },
+            singleLine = true,
+            textStyle = BonyType.body.copy(color = BonyColors.Text),
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Sentences,
+                imeAction = ImeAction.Next,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = form.description,
+            onValueChange = { onFormChange(form.copy(description = it)) },
+            placeholder = { Text("notes…", style = BonyType.meta.copy(color = BonyColors.TextMute)) },
+            minLines = 3,
+            textStyle = BonyType.body.copy(color = BonyColors.Text),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(12.dp))
+
+        FieldRow("date", formatDateLong(form.eventDate), onDateClick)
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "all day",
+                style = BonyType.meta.copy(color = BonyColors.Text),
+                modifier = Modifier.weight(1f),
+            )
+            Box(
+                modifier = Modifier
+                    .size(36.dp, 22.dp)
+                    .background(if (form.allDay) BonyColors.AccentBg else BonyColors.Bg)
+                    .appBorder(1.dp, if (form.allDay) BonyColors.Accent else BonyColors.RuleStrong)
+                    .clickable { onFormChange(form.copy(allDay = !form.allDay)) }
+                    .padding(2.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(16.dp)
+                        .align(if (form.allDay) Alignment.CenterEnd else Alignment.CenterStart)
+                        .background(if (form.allDay) BonyColors.Accent else BonyColors.TextMute),
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .appBorder(1.dp, BonyColors.Rule)
+                .clickable(onClick = onRepeatClick)
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "repeat",
+                style = BonyType.meta.copy(color = BonyColors.TextMute),
+                modifier = Modifier.weight(0.35f),
+            )
+            Text(
+                text = if (form.repeatUnit == RepeatUnit.NONE) "never" else
+                    (if (form.repeatInterval == 1) "every ${form.repeatUnit.label.dropLast(1)}"
+                    else "every ${form.repeatInterval} ${form.repeatUnit.label}"),
+                style = BonyType.body.copy(color = BonyColors.Accent),
+                modifier = Modifier.weight(1f),
+            )
+            Text(text = "›", style = BonyType.body.copy(color = BonyColors.TextMute))
+        }
+
+        if (form.repeatUnit != RepeatUnit.NONE) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .appBorder(1.dp, BonyColors.Rule)
+                    .clickable(onClick = onEndDateClick)
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "ends",
+                    style = BonyType.meta.copy(color = BonyColors.TextMute),
+                    modifier = Modifier.weight(0.35f),
+                )
+                Text(
+                    text = form.repeatEndDate?.let { formatDateLong(it) } ?: "never",
+                    style = BonyType.body.copy(color = BonyColors.Accent),
+                    modifier = Modifier.weight(1f),
+                )
+                Text(text = "›", style = BonyType.body.copy(color = BonyColors.TextMute))
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        if (!form.allDay) {
+            FieldRow("start", formatTime(eventStartMillis(form)), onStartTimeClick)
+            FieldRow("end", formatTime(eventEndMillis(form)), onEndTimeClick)
+        }
+        Spacer(Modifier.height(8.dp))
+        LockBadge(label = "encrypted on device · AES-256-GCM")
+    }
+}
+
+@Composable
+private fun CalendarEditorOverlays(
+    form: CalendarEditorForm,
+    onFormChange: (CalendarEditorForm) -> Unit,
+    showDatePicker: Boolean,
+    onShowDatePickerChange: (Boolean) -> Unit,
+    clockTarget: TimeTarget?,
+    onClockTargetChange: (TimeTarget?) -> Unit,
+    showEndDatePicker: Boolean,
+    onShowEndDatePickerChange: (Boolean) -> Unit,
+    showRepeatPicker: Boolean,
+    onShowRepeatPickerChange: (Boolean) -> Unit,
+) {
+    if (showDatePicker) {
+        MonthDayPicker(
+            initial = form.eventDate,
+            onSelect = { onFormChange(form.copy(eventDate = it)); onShowDatePickerChange(false) },
+            onDismiss = { onShowDatePickerChange(false) },
+        )
+    }
+    clockTarget?.let { target ->
+        ClockPicker(
+            initial = if (target == TimeTarget.START) form.startTime else form.endTime,
+            onConfirm = { time ->
+                onFormChange(
+                    if (target == TimeTarget.START) form.copy(startTime = time)
+                    else form.copy(endTime = time),
+                )
+                onClockTargetChange(null)
+            },
+            onDismiss = { onClockTargetChange(null) },
+        )
+    }
+
+    if (showEndDatePicker) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            MonthDayPicker(
+                initial = form.repeatEndDate ?: form.eventDate,
+                onSelect = {
+                    onFormChange(form.copy(repeatEndDate = it))
+                    onShowEndDatePickerChange(false)
+                },
+                onDismiss = { onShowEndDatePickerChange(false) },
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 40.dp)
+                    .appBorder(1.dp, BonyColors.RuleStrong)
+                    .background(BonyColors.Surface)
+                    .clickable {
+                        onFormChange(form.copy(repeatEndDate = null))
+                        onShowEndDatePickerChange(false)
+                    }
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+            ) {
+                Text(text = "no end date", style = BonyType.tag.copy(color = BonyColors.Accent))
+            }
+        }
+    }
+
+    if (showRepeatPicker) {
+        RepeatPickerOverlay(
+            unit = form.repeatUnit,
+            interval = form.repeatInterval,
+            onDismiss = { onShowRepeatPickerChange(false) },
+            onApply = { unit, interval ->
+                onFormChange(form.copy(repeatUnit = unit, repeatInterval = interval))
+                onShowRepeatPickerChange(false)
+            },
+        )
+    }
+}
+
 
 /** Asks for event-reminder permissions, styled like the rest of the app. */
 @Composable

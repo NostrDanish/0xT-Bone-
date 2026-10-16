@@ -60,7 +60,7 @@ import dev.youniversal.theme.YouniversalTheme
 
 private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp", "bmp")
 private val AUDIO_EXTENSIONS = setOf(
-    "mp3", "m4a", "m4b", "m4p", "aac", "wav", "flac", "ogg", "oga", "opus",
+    "mp3", "mpga", "mpeg3", "mpg3", "m4a", "m4b", "m4p", "aac", "wav", "flac", "ogg", "oga", "opus",
     "weba", "aif", "aiff", "amr", "mka", "mid", "midi", "wma", "caf",
 )
 private val VIDEO_EXTENSIONS = setOf(
