@@ -5,6 +5,34 @@ All notable changes to this fork are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.3.54] — 2026-10-16
+
+### Added
+- Opt-in audio compression for Blossom uploads; compression is off by default,
+  and the original file is retained when compression is disabled or does not
+  produce a smaller AAC/M4A file.
+- Optional block-poster and NIP-56 report actions in note menus, plus the
+  default-enabled T-Bone NIP-89 client tag with a setting to disable it.
+- Polished shareable PNG cards for full notes and passphrase-encrypted backups
+  for notes, checklists, attachments, folders, and calendar events.
+- Offline calendar reminders scheduled with Android alarms, including reboot
+  and time-change rescheduling without Google services or a persistent app
+  connection.
+
+### Changed
+- Long checklist previews now expand and collapse; prose inputs request
+  sentence capitalization, and Youniversal feed tabs and bottom navigation
+  adapt to screen width and Android navigation insets.
+- Enlarged the note overflow control and removed the redundant Copy JSON menu
+  action; copying remains available in the raw-event dialog.
+
+### Fixed
+- MPEG audio MIME aliases such as `audio/mpeg` and `audio/mpga` are handled by
+  the inline player.
+- Backup export now captures notes, folders, attachments, and calendar events
+  from one consistent database snapshot before encryption.
+
+
 ## [0.3.53] — 2026-10-15
 
 ### Added
