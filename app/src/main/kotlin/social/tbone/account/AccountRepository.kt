@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import social.tbone.nostr.NostrJson
+import social.tbone.Tunables
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -49,7 +50,14 @@ class AccountRepository @Inject constructor(
                 ?: mutableListOf()
 
             if (current.none { it.pubkey == account.pubkey }) {
-                current.add(account)
+                // Seed only the first account created on a fresh install. Do not
+                // rewrite existing users' empty or manually maintained relay lists.
+                val initialAccount = if (current.isEmpty() && account.relays.isEmpty()) {
+                    account.copy(relays = Tunables.NEW_INSTALL_RELAYS)
+                } else {
+                    account
+                }
+                current.add(initialAccount)
             }
             prefs[KEY_ACCOUNTS] = NostrJson.encodeToString(current)
 

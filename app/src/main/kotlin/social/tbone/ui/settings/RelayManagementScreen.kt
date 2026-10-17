@@ -52,6 +52,7 @@ fun RelayManagementScreen(
     viewModel: RelayManagementViewModel = hiltViewModel(),
 ) {
     val relayStatuses by viewModel.relayStatuses.collectAsStateWithLifecycle()
+    val syncState by viewModel.syncState.collectAsStateWithLifecycle()
     var showAddDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -65,6 +66,12 @@ fun RelayManagementScreen(
                     }
                 },
                 actions = {
+                    TextButton(
+                        enabled = !syncState.syncing,
+                        onClick = viewModel::syncPreferredRelays,
+                    ) {
+                        Text(if (syncState.syncing) "Syncing…" else "Sync list")
+                    }
                     IconButton(onClick = { showAddDialog = true }) {
                         Icon(Icons.Default.Add, contentDescription = "Add relay")
                     }
@@ -77,6 +84,16 @@ fun RelayManagementScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            item(key = "relay_sync_status") {
+                syncState.message?.let { message ->
+                    Text(
+                        text = message,
+                        color = if (syncState.isError) androidx.compose.ui.graphics.Color(0xFFB3261E)
+                        else androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
             items(relayStatuses.entries.toList(), key = { it.key }) { (url, status) ->
                 ListItem(
                     headlineContent = { Text(url) },

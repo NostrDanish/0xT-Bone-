@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -105,6 +106,7 @@ fun SettingsScreen(
             .fillMaxSize()
             .background(BonyColors.Bg)
             .statusBarsPadding()
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState()),
     ) {
         SettingsTopBar(onBack)
@@ -145,7 +147,7 @@ fun SettingsScreen(
             onDuressPinSetup = onDuressPinSetup,
         )
         SettingsDebugSection(viewModel, context, accounts, activeAccount)
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(96.dp))
     }
 
     if (showAccentSheet) {

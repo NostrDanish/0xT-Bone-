@@ -112,12 +112,20 @@ class NotesViewModel @Inject constructor(
         }
     }
 
+    /** Pins or unpins only within the note's current folder. */
+    fun folderPinToggle(id: String) {
+        val note = notes.value.find { it.id == id } ?: return
+        viewModelScope.launch {
+            runCatching { repository.setFolderPinned(id, !note.folderPinned) }
+                .onFailure { _error.value = "could not pin in folder (${it.message})" }
+        }
+    }
+
     /**
-     * Moves up one position within the same folder group (un-filed notes move
-     * among un-filed notes). Pinned items are untouched.
+     * Moves up one position among un-filed notes. Global pins are untouched.
      */
     fun moveUp(id: String) {
-        val list = notes.value.filter { !it.pinned && it.folderId == notes.value.find { n -> n.id == id }?.folderId }
+        val list = notes.value.filter { !it.pinned && it.folderId.isNullOrBlank() }
         val index = list.indexOfFirst { it.id == id }
         if (index <= 0) return
         viewModelScope.launch {
@@ -126,10 +134,30 @@ class NotesViewModel @Inject constructor(
         }
     }
 
-    /** Moves down one position within the same folder group. */
+    /** Moves down one position among un-filed notes. */
     fun moveDown(id: String) {
-        val folderId = notes.value.find { it.id == id }?.folderId
-        val list = notes.value.filter { !it.pinned && it.folderId == folderId }
+        val list = notes.value.filter { !it.pinned && it.folderId.isNullOrBlank() }
+        val index = list.indexOfFirst { it.id == id }
+        if (index < 0 || index >= list.lastIndex) return
+        viewModelScope.launch {
+            runCatching { repository.swapOrder(list[index].id, list[index + 1].id) }
+                .onFailure { _error.value = "could not move (${it.message})" }
+        }
+    }
+
+    /** Reorders only unpinned items inside the folder currently being viewed. */
+    fun moveUpInFolder(id: String, folderId: String) {
+        val list = notes.value.filter { !it.folderPinned && it.folderId == folderId }
+        val index = list.indexOfFirst { it.id == id }
+        if (index <= 0) return
+        viewModelScope.launch {
+            runCatching { repository.swapOrder(list[index].id, list[index - 1].id) }
+                .onFailure { _error.value = "could not move (${it.message})" }
+        }
+    }
+
+    fun moveDownInFolder(id: String, folderId: String) {
+        val list = notes.value.filter { !it.folderPinned && it.folderId == folderId }
         val index = list.indexOfFirst { it.id == id }
         if (index < 0 || index >= list.lastIndex) return
         viewModelScope.launch {
@@ -166,7 +194,7 @@ class NotesViewModel @Inject constructor(
     fun pinFolderToggle(id: String) {
         val folder = folders.value.find { it.id == id } ?: return
         viewModelScope.launch {
-            runCatching { repository.setFolderPinned(id, !folder.pinned) }
+            runCatching { repository.setFolderRowPinned(id, !folder.pinned) }
                 .onFailure { _error.value = "could not pin folder (${it.message})" }
         }
     }

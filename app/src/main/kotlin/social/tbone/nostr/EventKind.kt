@@ -19,6 +19,7 @@ object EventKind {
     const val POLL_RESPONSE = 1018   // NIP-88: poll vote
     const val POLL = 1068            // NIP-88: poll
     const val RELAY_LIST = 10002     // NIP-65: relay list metadata
+    const val BLOSSOM_SERVER_LIST = 10063 // BUD-03: user's Blossom server list
     const val AUTH = 22242           // NIP-42: relay authentication
     const val NOSTR_CONNECT = 24133  // NIP-46: nsecBunker request/response
 

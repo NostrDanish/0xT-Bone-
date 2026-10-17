@@ -69,11 +69,18 @@ public object YouniversalTonalPalette {
      * of generic grey. Error stays a constant red — an accent color should never change what
      * "destructive" looks like.
      */
-    public fun colorScheme(seed: Color, isDark: Boolean): ColorScheme {
+    public fun colorScheme(
+        seed: Color,
+        isDark: Boolean,
+        /** A restrained accent boost for light and cream seed-based themes. */
+        vividAccents: Boolean = false,
+    ): ColorScheme {
+        val accentBoost = if (vividAccents && !isDark) 1.15f else 1f
         fun primary(toneValue: Int): Color = tone(seed, toneValue)
-        fun secondary(toneValue: Int): Color = tone(seed, toneValue, chromaScale = 0.34f)
+        fun secondary(toneValue: Int): Color =
+            tone(seed, toneValue, chromaScale = 0.34f * accentBoost)
         fun tertiary(toneValue: Int): Color =
-            tone(seed, toneValue, chromaScale = 0.5f, hueShiftDegrees = 60f)
+            tone(seed, toneValue, chromaScale = 0.5f * accentBoost, hueShiftDegrees = 60f)
         fun neutral(toneValue: Int): Color = tone(seed, toneValue, chromaScale = 0.06f)
         fun neutralVariant(toneValue: Int): Color = tone(seed, toneValue, chromaScale = 0.16f)
         fun error(toneValue: Int): Color = tone(ErrorSeed, toneValue)

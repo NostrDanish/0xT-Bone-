@@ -5,6 +5,28 @@ All notable changes to this fork are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.3.55] — 2026-10-17
+
+### Added
+- Sync Blossom defaults from the account’s published server list and preferred
+  relays from its NIP-65 relay list; new installs start with an updated relay
+  set without changing existing accounts’ relay settings.
+- Multi-select image, video, and audio uploads in Write, plus persisted poll
+  votes, immediate full results after voting, and support for up to 20 options.
+
+### Changed
+- Moved encrypted note/calendar backup controls to Toolbox. Long checklist
+  items now expand individually with “See more,” restoring the prior overall
+  checklist preview behavior.
+- Refined Youniversal Cream and light-theme accents, constrained feed tabs,
+  centered the emoji selector, and added lower-screen content spacing.
+
+### Fixed
+- Folder pins now stay scoped to their folder; opening a reposted reply no
+  longer scrolls the feed back to it after the reader scrolls away.
+- Thumbnail-backed videos have a centered play affordance, and thread focus
+  waits for the target context before scrolling.
+
 ## [0.3.54] — 2026-10-16
 
 ### Added

@@ -11,6 +11,9 @@ object Tunables {
     /** Maximum events kept in the home/global feed list. */
     const val MAX_FEED_EVENTS = 300
 
+    /** Maximum poll choices offered by the composer. */
+    const val MAX_POLL_OPTIONS = 20
+
     /** Maximum size of a kind-6 repost content field before parsing is skipped. */
     const val MAX_REPOST_CONTENT_BYTES = 64 * 1024
 
@@ -28,7 +31,25 @@ object Tunables {
      */
     const val MAX_TOTAL_RELAYS = 8
 
-    /** Fallback relays used when the account has no NIP-65 relay list. */
+    /**
+     * Relays seeded into the very first account on a fresh install. Existing
+     * accounts with an empty relay list continue to use [DEFAULT_RELAYS].
+     */
+    val NEW_INSTALL_RELAYS = listOf(
+        "wss://hotrightnow.nostr1.com",
+        "wss://atlas.nostr.land",
+        "wss://nostr.computingcache.com",
+        "wss://nostr-02.yakihonne.com",
+        "wss://relay.ditto.pub",
+        "wss://relay.damus.io",
+        "wss://relay.primal.net",
+        "wss://nostr.bitcoiner.social",
+        "wss://purplepag.es",
+        "wss://relay.nostr.net",
+        "wss://nostr-pub.wellorder.net",
+    )
+
+    /** Legacy fallback relays used when an existing account has no relay list. */
     val DEFAULT_RELAYS = listOf(
         "wss://relay.damus.io",
         "wss://relay.nostr.band",

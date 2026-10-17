@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import social.tbone.notes.NoteFolderUi
-import social.tbone.notes.ChecklistData
 import social.tbone.notes.NoteKind
 import social.tbone.notes.NoteUi
 import social.tbone.ui.theme.BonyColors
@@ -613,63 +612,10 @@ private fun NoteRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (checklist != null) {
-                ChecklistRegularPreview(noteId = note.id, checklist = checklist)
-            }
         }
     }
 }
 
-private const val CHECKLIST_COLLAPSED_PREVIEW_ITEMS = 3
-
-/** Read-only checklist preview for note rows; long lists have an inline expand/collapse control. */
-@Composable
-internal fun ChecklistRegularPreview(noteId: String, checklist: ChecklistData) {
-    if (checklist.items.isEmpty()) return
-    var expanded by remember(noteId) { mutableStateOf(false) }
-    val visibleItems = if (expanded) checklist.items else
-        checklist.items.take(CHECKLIST_COLLAPSED_PREVIEW_ITEMS)
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 6.dp),
-    ) {
-        visibleItems.forEach { item ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = if (item.checked) "☑" else "☐",
-                    style = BonyType.meta.copy(
-                        color = if (item.checked) BonyColors.Accent else BonyColors.TextMute,
-                    ),
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = item.text,
-                    style = BonyType.meta.copy(
-                        color = if (item.checked) BonyColors.TextMute else BonyColors.TextDim,
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        if (checklist.items.size > CHECKLIST_COLLAPSED_PREVIEW_ITEMS) {
-            Text(
-                text = if (expanded) "⌃ show less" else "⌄ show ${checklist.items.size - CHECKLIST_COLLAPSED_PREVIEW_ITEMS} more",
-                style = BonyType.meta.copy(color = BonyColors.Accent),
-                modifier = Modifier
-                    .clickable { expanded = !expanded }
-                    .padding(vertical = 4.dp),
-            )
-        }
-    }
-}
-
-/** Long-press popup for a note/checklist. */
 @Composable
 private fun NoteActionsOverlay(
     note: NoteUi,

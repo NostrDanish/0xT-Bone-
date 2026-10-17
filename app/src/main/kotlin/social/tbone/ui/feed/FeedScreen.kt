@@ -92,6 +92,7 @@ fun FeedScreen(
     val repliedByMe by viewModel.repliedByMe.collectAsStateWithLifecycle()
     val notifUnread by viewModel.notifUnread.collectAsStateWithLifecycle()
     val pollVoteCounts by viewModel.pollVoteCounts.collectAsStateWithLifecycle()
+    val pollTotalVotes by viewModel.pollTotalVotes.collectAsStateWithLifecycle()
     val pollMyVotes by viewModel.pollMyVotes.collectAsStateWithLifecycle()
     val pollVoteVersion by viewModel.pollVoteVersion.collectAsStateWithLifecycle()
 
@@ -225,6 +226,7 @@ fun FeedScreen(
                                 replies = replies,
                                 repliedByMe = repliedByMe,
                                 pollVoteCounts = pollVoteCounts,
+                                pollTotalVotes = pollTotalVotes,
                                 pollMyVotes = pollMyVotes,
                                 pollVoteVersion = pollVoteVersion,
                                 onPollVote = viewModel::voteOnPoll,
@@ -434,12 +436,13 @@ private fun FeedTabStrip(
     onSwitch: (FeedTab) -> Unit,
 ) {
     val youniversal = YouniversalTheme.enabled
-    val effectiveFontScale = LocalDensity.current.fontScale
-    val youniversalLabelSize = when {
-        effectiveFontScale >= 2.2f -> 8.5f.sp
-        effectiveFontScale >= 1.6f -> 9.5f.sp
-        else -> 10.5f.sp
-    }
+    val effectiveFontScale = LocalDensity.current.fontScale.coerceAtLeast(0.1f)
+    // Youniversal composes its text scale with Android's system scale. Cap the
+    // rendered tab-label size so large accessibility/theme scales cannot force
+    // either half-width tab outside the screen.
+    val youniversalLabelSize =
+        (11f * effectiveFontScale).coerceAtMost(15f).div(effectiveFontScale).sp
+    val youniversalLetterSpacing = (0.4f / effectiveFontScale).sp
     Box(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -468,9 +471,10 @@ private fun FeedTabStrip(
                         text = label,
                         style = BonyType.tag.copy(
                             fontSize = if (youniversal) youniversalLabelSize else BonyType.tag.fontSize,
-                            letterSpacing = if (youniversal) 0.4.sp else BonyType.tag.letterSpacing,
+                            letterSpacing = if (youniversal) youniversalLetterSpacing else BonyType.tag.letterSpacing,
                             color = if (active) BonyColors.Accent else BonyColors.TextMute,
                         ),
+                        modifier = Modifier.fillMaxWidth(),
                         maxLines = 1,
                         softWrap = false,
                         overflow = TextOverflow.Ellipsis,

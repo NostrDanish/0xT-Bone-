@@ -96,6 +96,8 @@ fun NoteCard(
     repliedByMe: Set<String> = emptySet(),
     /** NIP-88 poll vote counts: poll id -> (option id -> count). */
     pollVoteCounts: Map<String, Map<String, Int>> = emptyMap(),
+    /** NIP-88 respondent totals, independent of multi-choice option counts. */
+    pollTotalVotes: Map<String, Int> = emptyMap(),
     /** NIP-88 poll votes by the active user: poll id -> option ids. */
     pollMyVotes: Map<String, List<String>> = emptyMap(),
     /** Bumped on vote changes — used to recompute poll counts. */
@@ -275,7 +277,8 @@ fun NoteCard(
             PollCard(
                 poll = event,
                 voteCounts = pollVoteCounts[event.id] ?: emptyMap(),
-                totalVotes = pollVoteCounts[event.id]?.values?.sum() ?: 0,
+                totalVotes = pollTotalVotes[event.id]
+                    ?: (pollVoteCounts[event.id]?.values?.sum() ?: 0),
                 userVotes = pollMyVotes[event.id] ?: emptyList(),
                 onVote = { ids -> onPollVote?.invoke(event, ids) },
                 modifier = Modifier.fillMaxWidth(),

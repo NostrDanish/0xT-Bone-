@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import social.tbone.ui.theme.BonyColors
@@ -36,6 +37,7 @@ fun LinkSegmentedText(
     modifier: Modifier = Modifier,
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Clip,
+    onTextLayout: (TextLayoutResult) -> Unit = {},
 ) {
     val context = LocalContext.current
     val segments = remember(text) { splitByUrls(text) }
@@ -52,6 +54,7 @@ fun LinkSegmentedText(
                     ),
                     maxLines = maxLines,
                     overflow = overflow,
+                    onTextLayout = onTextLayout,
                     modifier = Modifier.combinedClickable(
                         onClick = { openUrl(context, segment) },
                         onLongClick = { copyUrl(context, segment) },
@@ -63,6 +66,7 @@ fun LinkSegmentedText(
                     style = style,
                     maxLines = maxLines,
                     overflow = overflow,
+                    onTextLayout = onTextLayout,
                 )
             }
         }

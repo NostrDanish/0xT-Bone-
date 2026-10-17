@@ -24,6 +24,8 @@ data class NoteUi(
     val createdAt: Long,
     val updatedAt: Long,
     val pinned: Boolean = false,
+    /** Pin state scoped to the folder; never used by the main Notes list. */
+    val folderPinned: Boolean = false,
     val sortOrder: Double = 0.0,
     val folderId: String? = null,
     /** Decrypted title (notes have a title field like checklists do). */
@@ -181,6 +183,7 @@ class NotesRepository @Inject constructor(
                 updatedAt = now,
                 kind = "note",
                 pinned = existing?.pinned ?: false,
+                folderPinned = existing?.folderPinned ?: false,
                 sortOrder = existing?.sortOrder ?: (dao.minSortOrder() - 1.0),
                 folderId = folderId ?: existing?.folderId,
                 titleCiphertext = tct,
@@ -213,6 +216,7 @@ class NotesRepository @Inject constructor(
                 updatedAt = now,
                 kind = "checklist",
                 pinned = existing?.pinned ?: false,
+                folderPinned = existing?.folderPinned ?: false,
                 sortOrder = existing?.sortOrder ?: (dao.minSortOrder() - 1.0),
                 folderId = folderId ?: existing?.folderId,
                 titleCiphertext = null,
@@ -256,7 +260,7 @@ class NotesRepository @Inject constructor(
         folderDao.delete(id)
     }
 
-    suspend fun setFolderPinned(id: String, pinned: Boolean) = folderDao.setPinned(id, pinned)
+    suspend fun setFolderRowPinned(id: String, pinned: Boolean) = folderDao.setPinned(id, pinned)
 
     suspend fun swapFolderOrder(a: String, b: String) {
         val fa = folderDao.getById(a) ?: return
@@ -271,6 +275,8 @@ class NotesRepository @Inject constructor(
     // ── pin / move ────────────────────────────────────────────────────────────
 
     suspend fun setPinned(id: String, pinned: Boolean) = dao.setPinned(id, pinned)
+
+    suspend fun setFolderPinned(id: String, pinned: Boolean) = dao.setFolderPinned(id, pinned)
 
     /** Swaps the manual order of two rows (move up/down). */
     suspend fun swapOrder(a: String, b: String) {
@@ -317,6 +323,7 @@ class NotesRepository @Inject constructor(
             createdAt = createdAt,
             updatedAt = updatedAt,
             pinned = pinned,
+            folderPinned = folderPinned,
             sortOrder = sortOrder,
             folderId = folderId,
             title = runCatching {

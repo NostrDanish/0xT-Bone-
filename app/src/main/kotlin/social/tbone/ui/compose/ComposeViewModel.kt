@@ -8,12 +8,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -56,13 +58,10 @@ data class ComposeUiState(
     // Blossom media uploads
     val isUploading: Boolean = false,
     val uploadingKind: String? = null,
-    val uploadError: String? = null,
     /** Server chosen for the next upload (null = default/random from pool). */
     val blossomServer: String? = null,
     /** Enabled Blossom servers (defaults + custom). */
     val blossomServers: List<String> = emptyList(),
-    /** Set once an upload finishes; the screen consumes it and clears it. */
-    val lastUploadUrl: String? = null,
 )
 
 @OptIn(FlowPreview::class)
@@ -86,6 +85,16 @@ class ComposeViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ComposeUiState())
     val uiState: StateFlow<ComposeUiState> = _uiState.asStateFlow()
 
+    private data class MediaUploadRequest(val uri: Uri, val kind: String)
+
+    private val mediaUploadQueue = Channel<MediaUploadRequest>(Channel.UNLIMITED)
+    private val uploadedUrlQueue = Channel<String>(Channel.UNLIMITED)
+    private val uploadErrorQueue = Channel<String>(Channel.UNLIMITED)
+    val uploadedMediaUrls = uploadedUrlQueue.receiveAsFlow()
+    val uploadErrors = uploadErrorQueue.receiveAsFlow()
+    private val uploadQueueLock = Any()
+    private var pendingUploads = 0
+
     // ── @ mention autocomplete ────────────────────────────────────────────────
     /** The text currently being typed after "@" (null when no mention in progress). */
     private val _mentionQuery = MutableStateFlow<String?>(null)
@@ -101,12 +110,16 @@ class ComposeViewModel @Inject constructor(
     private var currentMentionSubId: String? = null
 
     init {
+        viewModelScope.launch {
+            for (request in mediaUploadQueue) uploadMedia(request)
+        }
+
         audioPath?.takeIf { it.isNotBlank() }?.let { path ->
             val recording = File(path)
             if (recording.isFile) {
                 attachMedia(Uri.fromFile(recording), "audio")
             } else {
-                _uiState.update { it.copy(uploadError = "recording file is no longer available") }
+                uploadErrorQueue.trySend("recording file is no longer available")
             }
         }
 
@@ -154,66 +167,75 @@ class ComposeViewModel @Inject constructor(
 
     fun setBlossomServer(url: String?) = _uiState.update { it.copy(blossomServer = url) }
 
-    /**
-     * Uploads [uri] to Blossom and exposes the resulting URL via lastUploadUrl.
-     *
-     * The MIME type sent to the server describes the prepared bytes. Images
-     * are re-encoded as JPEG; audio stays original unless its opt-in compressor
-     * produces a smaller AAC/M4A file; videos are transcoded when possible and
-     * otherwise retain their original type.
-     */
+    /** Queue one upload; multiple picker results are processed sequentially and all URLs kept. */
     fun attachMedia(uri: Uri, kind: String) {
-        if (kind !in setOf("image", "video", "audio") || _uiState.value.isUploading) return
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(isUploading = true, uploadingKind = kind, uploadError = null)
-            }
-            try {
-                val signer = signerFactory.forActiveAccount()
-                    ?: error("no active account")
-                val compress = appSettings.blossomCompress.value
-                val prepared = when (kind) {
-                    "image" -> MediaProcessor.prepareImageMedia(context, uri, compress = compress)
-                    "video" -> MediaProcessor.prepareVideoMedia(context, uri, compress = compress)
-                    "audio" -> MediaProcessor.prepareAudioMedia(
-                        context,
-                        uri,
-                        compress = appSettings.blossomAudioCompress.value,
-                    )
-                    else -> null
-                } ?: error("could not read ${kind} media")
-                val label = when (kind) {
-                    "image" -> "Uploading image"
-                    "video" -> "Uploading video"
-                    else -> "Uploading audio"
-                }
-                val url = blossomUploader.upload(
-                    file = prepared.file,
-                    mime = prepared.mime,
-                    preferredServer = _uiState.value.blossomServer,
-                    signer = signer,
-                    alt = label,
-                    extension = prepared.extension,
-                )
-                _uiState.update {
-                    it.copy(isUploading = false, uploadingKind = null, lastUploadUrl = url)
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (e: Exception) {
+        if (kind !in setOf("image", "video", "audio")) return
+        synchronized(uploadQueueLock) {
+            pendingUploads += 1
+            _uiState.update { it.copy(isUploading = true) }
+            val queued = mediaUploadQueue.trySend(MediaUploadRequest(uri, kind))
+            if (queued.isFailure) {
+                pendingUploads = (pendingUploads - 1).coerceAtLeast(0)
                 _uiState.update {
                     it.copy(
-                        isUploading = false,
+                        isUploading = pendingUploads > 0,
                         uploadingKind = null,
-                        uploadError = e.message ?: "upload failed",
+                    )
+                }
+                uploadErrorQueue.trySend("upload queue is unavailable")
+            }
+        }
+    }
+
+    private suspend fun uploadMedia(request: MediaUploadRequest) {
+        _uiState.update {
+            it.copy(uploadingKind = request.kind)
+        }
+        try {
+            val signer = signerFactory.forActiveAccount()
+                ?: error("no active account")
+            val compress = appSettings.blossomCompress.value
+            val prepared = when (request.kind) {
+                "image" -> MediaProcessor.prepareImageMedia(context, request.uri, compress = compress)
+                "video" -> MediaProcessor.prepareVideoMedia(context, request.uri, compress = compress)
+                "audio" -> MediaProcessor.prepareAudioMedia(
+                    context,
+                    request.uri,
+                    compress = appSettings.blossomAudioCompress.value,
+                )
+                else -> null
+            } ?: error("could not read ${request.kind} media")
+            val label = when (request.kind) {
+                "image" -> "Uploading image"
+                "video" -> "Uploading video"
+                else -> "Uploading audio"
+            }
+            val url = blossomUploader.upload(
+                file = prepared.file,
+                mime = prepared.mime,
+                preferredServer = _uiState.value.blossomServer,
+                signer = signer,
+                alt = label,
+                extension = prepared.extension,
+            )
+            uploadedUrlQueue.trySend(url)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            val message = error.message ?: "upload failed"
+            uploadErrorQueue.trySend(message)
+        } finally {
+            synchronized(uploadQueueLock) {
+                pendingUploads = (pendingUploads - 1).coerceAtLeast(0)
+                _uiState.update {
+                    it.copy(
+                        isUploading = pendingUploads > 0,
+                        uploadingKind = null,
                     )
                 }
             }
         }
     }
-
-    /** Called by the screen after it has inserted the uploaded URL into the text. */
-    fun consumeUploadedUrl() = _uiState.update { it.copy(lastUploadUrl = null) }
 
     fun setMentionQuery(q: String?) = _mentionQuery.update { q }
 
@@ -284,6 +306,9 @@ class ComposeViewModel @Inject constructor(
     )
 
     override fun onCleared() {
+        mediaUploadQueue.close()
+        uploadedUrlQueue.close()
+        uploadErrorQueue.close()
         if (mentionSearchRelayAdded) {
             pool.releaseRelay(Tunables.SEARCH_RELAY)
             mentionSearchRelayAdded = false
@@ -308,7 +333,7 @@ class ComposeViewModel @Inject constructor(
 
     fun addPollOption() {
         _uiState.update { state ->
-            if (state.pollOptions.size < 10)
+            if (state.pollOptions.size < Tunables.MAX_POLL_OPTIONS)
                 state.copy(pollOptions = state.pollOptions + "")
             else state
         }
@@ -416,7 +441,9 @@ class ComposeViewModel @Inject constructor(
 
             val isPoll = _uiState.value.pollEnabled
             val pollKindTags = if (isPoll) {
-                val nonBlank = _uiState.value.pollOptions.map { it.trim() }.filter { it.isNotEmpty() }
+                val nonBlank = _uiState.value.pollOptions.map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .take(Tunables.MAX_POLL_OPTIONS)
                 if (nonBlank.size < 2) {
                     _uiState.update { it.copy(isPublishing = false, error = "Poll needs at least 2 options") }
                     return@launch

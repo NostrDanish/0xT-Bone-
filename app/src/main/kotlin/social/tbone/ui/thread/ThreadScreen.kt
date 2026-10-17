@@ -24,6 +24,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -43,6 +45,7 @@ import social.tbone.ui.feed.NoteCard
 import social.tbone.ui.feed.extractInlineQuoteId
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import kotlinx.coroutines.flow.first
 
 /**
  * Thread screen.
@@ -72,19 +75,32 @@ fun ThreadScreen(
     val replies by viewModel.replies.collectAsStateWithLifecycle()
     val repliedByMe by viewModel.repliedByMe.collectAsStateWithLifecycle()
     val pollVoteCounts by viewModel.pollVoteCounts.collectAsStateWithLifecycle()
+    val pollTotalVotes by viewModel.pollTotalVotes.collectAsStateWithLifecycle()
     val pollMyVotes by viewModel.pollMyVotes.collectAsStateWithLifecycle()
     val pollVoteVersion by viewModel.pollVoteVersion.collectAsStateWithLifecycle()
     val activePubkey by viewModel.activePubkey.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
 
     val items = uiState.items
+    val latestItems by rememberUpdatedState(items)
+    val latestNotFound by rememberUpdatedState(uiState.notFound)
+    val latestRootId by rememberUpdatedState(uiState.root?.id)
+    val latestLoadingContext by rememberUpdatedState(uiState.loadingContext)
 
-    // Scroll to whichever note was opened once it is on screen.
-    LaunchedEffect(uiState.focusedEventId, items.size) {
-        val index = items.indexOfFirst {
-            it is ThreadItem.Note && it.event.id == uiState.focusedEventId
-        }
-        if (index >= 0) listState.animateScrollToItem(index)
+    // Initial focus is one-shot, after the ancestor chain has been flattened.
+    // Re-targeting on every item-count change was snapping the reader back to
+    // the originally opened (often reposted) reply after they scrolled up.
+    LaunchedEffect(uiState.focusedEventId) {
+        val targetIndex = snapshotFlow {
+            val target = latestItems.indexOfFirst {
+                it is ThreadItem.Note && it.event.id == uiState.focusedEventId
+            }
+            val rootReady = latestRootId?.let { rootId ->
+                latestItems.any { it is ThreadItem.Note && it.event.id == rootId }
+            } ?: false
+            target to (latestNotFound || (target >= 0 && !latestLoadingContext && rootReady))
+        }.first { (_, ready) -> ready }.first
+        if (targetIndex >= 0) listState.animateScrollToItem(targetIndex)
     }
 
     CompositionLocalProvider(
@@ -173,6 +189,7 @@ fun ThreadScreen(
                                 replies = replies,
                                 repliedByMe = repliedByMe,
                                 pollVoteCounts = pollVoteCounts,
+                                pollTotalVotes = pollTotalVotes,
                                 pollMyVotes = pollMyVotes,
                                 pollVoteVersion = pollVoteVersion,
                                 activePubkey = activePubkey,
@@ -216,6 +233,7 @@ private fun ThreadRow(
     replies: Map<String, Int>,
     repliedByMe: Set<String>,
     pollVoteCounts: Map<String, Map<String, Int>>,
+    pollTotalVotes: Map<String, Int>,
     pollMyVotes: Map<String, List<String>>,
     pollVoteVersion: Int,
     activePubkey: String?,
@@ -270,6 +288,7 @@ private fun ThreadRow(
             replies = replies,
             repliedByMe = repliedByMe,
             pollVoteCounts = pollVoteCounts,
+            pollTotalVotes = pollTotalVotes,
             pollMyVotes = pollMyVotes,
             pollVoteVersion = pollVoteVersion,
             onPollVote = onPollVote,

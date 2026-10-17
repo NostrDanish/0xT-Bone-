@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -26,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.ContentScale
@@ -332,34 +335,57 @@ private fun VideoThumbnail(url: String, onOpen: () -> Unit) {
         } else {
             Modifier.fillMaxWidth().height(INLINE_IMAGE_HEIGHT)
         }
-        SubcomposeAsyncImage(
-            model = request,
-            contentDescription = "video thumbnail",
-            contentScale = if (youniversal) ContentScale.Fit else ContentScale.Crop,
+        Box(
             modifier = frameModifier
                 .clip(shape)
                 .background(BonyColors.SurfaceAlt, shape)
                 .border(1.dp, BonyColors.Rule, shape)
                 .clickable(onClick = onOpen),
-            onSuccess = { result ->
-                val size = result.painter.intrinsicSize
-                if (size.width > 0f && size.height > 0f) {
-                    val ratio = size.width / size.height
-                    if (ratio.isFinite() && ratio > 0f) aspectRatio = ratio
+            contentAlignment = Alignment.Center,
+        ) {
+            SubcomposeAsyncImage(
+                model = request,
+                contentDescription = "video thumbnail",
+                contentScale = if (youniversal) ContentScale.Fit else ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                onSuccess = { result ->
+                    val size = result.painter.intrinsicSize
+                    if (size.width > 0f && size.height > 0f) {
+                        val ratio = size.width / size.height
+                        if (ratio.isFinite() && ratio > 0f) aspectRatio = ratio
+                    }
+                },
+                loading = { MediaStripes(Modifier.fillMaxSize()) },
+                error = {
+                    MediaStripes(Modifier.fillMaxSize())
+                    Text(
+                        text = "[ video · tap to play ]",
+                        style = BonyType.meta.copy(color = BonyColors.TextMute),
+                        modifier = Modifier
+                            .background(BonyColors.SurfaceAlt.copy(alpha = 0.85f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                },
+            )
+            // Classic tap-to-play affordance, centered over the thumbnail.
+            Box(
+                modifier = Modifier
+                    .size(54.dp)
+                    .background(Color.Black.copy(alpha = 0.62f), CircleShape)
+                    .border(1.dp, Color.White.copy(alpha = 0.9f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Canvas(modifier = Modifier.size(23.dp)) {
+                    val play = Path().apply {
+                        moveTo(size.width * 0.24f, size.height * 0.10f)
+                        lineTo(size.width * 0.84f, size.height * 0.50f)
+                        lineTo(size.width * 0.24f, size.height * 0.90f)
+                        close()
+                    }
+                    drawPath(play, Color.White)
                 }
-            },
-            loading = { MediaStripes(Modifier.fillMaxSize()) },
-            error = {
-                MediaStripes(Modifier.fillMaxSize())
-                Text(
-                    text = "[ video · tap to play ]",
-                    style = BonyType.meta.copy(color = BonyColors.TextMute),
-                    modifier = Modifier
-                        .background(BonyColors.SurfaceAlt.copy(alpha = 0.85f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-            },
-        )
+            }
+        }
     }
 }
 

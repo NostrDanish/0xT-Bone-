@@ -176,6 +176,7 @@ class EncryptedBackupRepository @Inject constructor(
                                 updatedAt = note.updatedAt,
                                 kind = note.kind,
                                 pinned = note.pinned,
+                                folderPinned = note.folderPinned,
                                 sortOrder = note.sortOrder,
                                 folderId = note.folderId,
                                 titleCiphertext = titleCiphertext,
@@ -279,6 +280,7 @@ class EncryptedBackupRepository @Inject constructor(
                 pinned = entity.pinned,
                 sortOrder = entity.sortOrder,
                 folderId = entity.folderId,
+                folderPinned = entity.folderPinned,
             )
         }
         val folders = folderDao.getAll().map { entity ->
@@ -354,6 +356,9 @@ class EncryptedBackupRepository @Inject constructor(
             require(note.kind == "note" || note.kind == "checklist") { "The backup contains an unknown note type." }
             require(note.folderId == null || note.folderId in validFolderIds) {
                 "A note refers to a folder that is not in the backup."
+            }
+            require(!note.folderPinned || note.folderId != null) {
+                "A note pinned in a folder must refer to a folder in the backup."
             }
         }
         manifest.attachments.forEach { attachment ->

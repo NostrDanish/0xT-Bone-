@@ -77,7 +77,7 @@ fun FolderContentsScreen(
     // Only this folder's notes, pinned first then manual order.
     val notes = remember(allNotes, folderId) {
         allNotes.filter { it.folderId == folderId }
-            .sortedWith(compareByDescending<NoteUi> { it.pinned }.thenBy { it.sortOrder })
+            .sortedWith(compareByDescending<NoteUi> { it.folderPinned }.thenBy { it.sortOrder })
     }
 
     Column(
@@ -229,9 +229,9 @@ fun FolderContentsScreen(
             onDismiss = { actionTarget = null },
             onCopy = { copyToClipboard2(context, note.shareText()); actionTarget = null },
             onShare = { onShare(note.shareText()); actionTarget = null },
-            onPinToggle = { viewModel.pinToggle(note.id); actionTarget = null },
-            onMoveUp = { viewModel.moveUp(note.id); actionTarget = null },
-            onMoveDown = { viewModel.moveDown(note.id); actionTarget = null },
+            onPinToggle = { viewModel.folderPinToggle(note.id); actionTarget = null },
+            onMoveUp = { viewModel.moveUpInFolder(note.id, folderId); actionTarget = null },
+            onMoveDown = { viewModel.moveDownInFolder(note.id, folderId); actionTarget = null },
             onDelete = { viewModel.delete(note.id); actionTarget = null },
         )
     }
@@ -247,10 +247,10 @@ private fun FolderNoteRow(note: NoteUi, onClick: () -> Unit, onLongClick: () -> 
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (note.pinned) {
+        if (note.folderPinned) {
             Icon(
                 imageVector = Icons.Outlined.PushPin,
-                contentDescription = "pinned",
+                contentDescription = "pinned in folder",
                 tint = BonyColors.Accent,
                 modifier = Modifier.height(14.dp),
             )
@@ -282,9 +282,6 @@ private fun FolderNoteRow(note: NoteUi, onClick: () -> Unit, onLongClick: () -> 
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (checklist != null) {
-                ChecklistRegularPreview(noteId = note.id, checklist = checklist)
-            }
         }
     }
 }
@@ -316,7 +313,7 @@ private fun FolderNoteActionsOverlay(
         ) {
             Text(
                 text = (if (note.kind == NoteKind.NOTE) "note" else "checklist") +
-                    if (note.pinned) " · pinned" else "",
+                    if (note.folderPinned) " · pinned in folder" else "",
                 style = BonyType.caption.copy(color = BonyColors.TextMute),
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             )
@@ -333,7 +330,7 @@ private fun FolderNoteActionsOverlay(
                     .padding(horizontal = 20.dp, vertical = 12.dp),
             )
             Text(
-                text = if (note.pinned) "unpin" else "pin",
+                text = if (note.folderPinned) "unpin from folder" else "pin in folder",
                 style = BonyType.body.copy(color = BonyColors.Text),
                 modifier = Modifier.fillMaxWidth().clickable(onClick = onPinToggle)
                     .padding(horizontal = 20.dp, vertical = 12.dp),

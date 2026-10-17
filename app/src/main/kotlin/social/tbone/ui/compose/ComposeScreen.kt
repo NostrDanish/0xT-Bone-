@@ -64,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import social.tbone.Tunables
 import social.tbone.nostr.Event
 import social.tbone.nostr.Nip19
 import social.tbone.ui.components.UserAvatar
@@ -86,21 +87,21 @@ fun ComposeScreen(
 
     // ── Media pickers (Blossom uploads) ──────────────────────────────────────
     val imagePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        uri?.let { viewModel.attachMedia(it, "image") }
+        ActivityResultContracts.PickMultipleVisualMedia(20)
+    ) { uris ->
+        uris.forEach { viewModel.attachMedia(it, "image") }
     }
     // GetContent keeps less-common video containers available through document
     // providers instead of limiting the chooser to the system photo picker.
     val videoPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let { viewModel.attachMedia(it, "video") }
+        ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        uris.forEach { viewModel.attachMedia(it, "video") }
     }
     val audioPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let { viewModel.attachMedia(it, "audio") }
+        ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        uris.forEach { viewModel.attachMedia(it, "audio") }
     }
     var fieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(""))
@@ -144,6 +145,15 @@ fun ComposeScreen(
         focusRequester.requestFocus()
     }
 
+    // Queue-backed flows preserve every URL/error when a multi-picker returns
+    // several items or the screen briefly stops collecting.
+    LaunchedEffect(viewModel) {
+        viewModel.uploadedMediaUrls.collect { url -> insertCharAtCaret("$url ") }
+    }
+    LaunchedEffect(viewModel) {
+        viewModel.uploadErrors.collect { error -> snackbarHostState.showSnackbar("upload failed: $error") }
+    }
+
     var textInitialized by remember { mutableStateOf(false) }
     LaunchedEffect(uiState.initialText) {
         if (!textInitialized && uiState.initialText.isNotEmpty()) {
@@ -158,19 +168,6 @@ fun ComposeScreen(
         LaunchedEffect(error) {
             snackbarHostState.showSnackbar(error)
             viewModel.clearError()
-        }
-    }
-
-    // Insert the uploaded media URL at the caret and clear it for the next one.
-    LaunchedEffect(uiState.lastUploadUrl) {
-        uiState.lastUploadUrl?.let { url ->
-            insertCharAtCaret(url + " ")
-            viewModel.consumeUploadedUrl()
-        }
-    }
-    uiState.uploadError?.let { err ->
-        LaunchedEffect(err) {
-            snackbarHostState.showSnackbar("upload failed: $err")
         }
     }
 
@@ -425,6 +422,7 @@ fun ComposeScreen(
                     style = BonyType.metaDim.copy(color = BonyColors.TextMute),
                 )
             }
+            Spacer(Modifier.height(48.dp))
         }
 
         SnackbarHost(
@@ -723,7 +721,7 @@ private fun PollBuilder(
             Spacer(Modifier.height(6.dp))
         }
 
-        if (options.size < 10) {
+        if (options.size < Tunables.MAX_POLL_OPTIONS) {
             Text(
                 text = "+ add option",
                 style = BonyType.tag.copy(color = BonyColors.TextMute),

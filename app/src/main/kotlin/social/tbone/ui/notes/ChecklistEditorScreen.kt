@@ -332,16 +332,31 @@ private fun ChecklistItemRow(
             }
         }
         Spacer(Modifier.width(10.dp))
-        // Link-aware text: tap a link to open it, long-press to copy.
-        LinkSegmentedText(
-            text = item.text,
-            style = BonyType.body.copy(
-                color = if (item.checked) BonyColors.TextMute else BonyColors.Text,
-            ),
-            modifier = Modifier.weight(1f),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        // Each task expands independently; long lists never share one global
+        // expand/collapse control. Links remain tappable in both states.
+        var expanded by remember(item.text) { mutableStateOf(false) }
+        var canExpand by remember(item.text) { mutableStateOf(false) }
+        Column(modifier = Modifier.weight(1f)) {
+            LinkSegmentedText(
+                text = item.text,
+                style = BonyType.body.copy(
+                    color = if (item.checked) BonyColors.TextMute else BonyColors.Text,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = if (expanded) Int.MAX_VALUE else 2,
+                overflow = TextOverflow.Ellipsis,
+                onTextLayout = { layout ->
+                    if (!expanded && layout.hasVisualOverflow) canExpand = true
+                },
+            )
+            if (canExpand || expanded) {
+                Text(
+                    text = if (expanded) "See less" else "See more",
+                    style = BonyType.meta.copy(color = BonyColors.Accent),
+                    modifier = Modifier.clickable { expanded = !expanded },
+                )
+            }
+        }
         Spacer(Modifier.width(8.dp))
         Text(
             text = "✎",

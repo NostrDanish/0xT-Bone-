@@ -7,6 +7,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -23,13 +24,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import social.tbone.nostr.Event
 import social.tbone.ui.theme.BonyColors
 
@@ -158,9 +157,6 @@ fun EmojiReactionPicker(
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val density = LocalDensity.current
-    // Sit just above the button, right-aligned with it.
-    val yOffset = with(density) { (-52).dp.roundToPx() }
     val scale = remember { Animatable(0.6f) }
     LaunchedEffect(Unit) {
         scale.animateTo(
@@ -168,24 +164,30 @@ fun EmojiReactionPicker(
             spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         )
     }
-    Popup(
-        alignment = Alignment.TopEnd,
-        offset = IntOffset(0, yOffset),
+    Dialog(
         onDismissRequest = onDismiss,
-        properties = PopupProperties(focusable = true),
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(BonyColors.Bg.copy(alpha = 0.36f))
+                .clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center,
+        ) {
         Row(
             modifier = Modifier
                 .graphicsLayer {
                     scaleX = scale.value
                     scaleY = scale.value
                     alpha = ((scale.value - 0.6f) / 0.4f).coerceIn(0f, 1f)
-                    transformOrigin = TransformOrigin(1f, 1f)
+                    transformOrigin = TransformOrigin(0.5f, 0.5f)
                 }
                 .background(BonyColors.Bg)
                 .appBorder(1.dp, BonyColors.RuleStrong)
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 4.dp, vertical = 2.dp),
+                .padding(horizontal = 4.dp, vertical = 2.dp)
+                .clickable { },
             horizontalArrangement = Arrangement.spacedBy(0.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -199,6 +201,7 @@ fun EmojiReactionPicker(
                     Text(text = emoji, style = TextStyle(fontSize = 22.sp))
                 }
             }
+        }
         }
     }
 }

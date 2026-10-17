@@ -23,8 +23,10 @@ data class NoteEntity(
     val updatedAt: Long,
     /** "note" or "checklist" — same AES-GCM key encrypts both. */
     @ColumnInfo(defaultValue = "note") val kind: String = "note",
-    /** Pinned notes sort to the top of the list. */
+    /** Pinned notes sort to the top of the main Notes list. */
     @ColumnInfo(defaultValue = "0") val pinned: Boolean = false,
+    /** A separate pin that applies only inside the note's current folder. */
+    @ColumnInfo(defaultValue = "0") val folderPinned: Boolean = false,
     /** Manual ordering — move up/down swaps these between neighbours. */
     @ColumnInfo(defaultValue = "0") val sortOrder: Double = 0.0,
     /** Parent folder, or null for un-filed notes. */
@@ -77,9 +79,12 @@ interface NoteDao {
     @Query("UPDATE notes SET sortOrder = :order WHERE id = :id")
     suspend fun setSortOrder(id: String, order: Double)
 
-    @Query("UPDATE notes SET folderId = :folderId WHERE id = :id")
+    @Query("UPDATE notes SET folderId = :folderId, folderPinned = 0 WHERE id = :id")
     suspend fun setFolder(id: String, folderId: String?)
 
-    @Query("UPDATE notes SET folderId = NULL WHERE folderId = :folderId")
+    @Query("UPDATE notes SET folderPinned = :pinned WHERE id = :id")
+    suspend fun setFolderPinned(id: String, pinned: Boolean)
+
+    @Query("UPDATE notes SET folderId = NULL, folderPinned = 0 WHERE folderId = :folderId")
     suspend fun clearFolder(folderId: String)
 }

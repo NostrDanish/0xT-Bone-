@@ -24,6 +24,8 @@ data class BackupNote(
     val pinned: Boolean,
     val sortOrder: Double,
     val folderId: String?,
+    /** Pin state scoped to the note's folder. Missing in pre-folder-pin backups. */
+    val folderPinned: Boolean = false,
 )
 
 @Serializable

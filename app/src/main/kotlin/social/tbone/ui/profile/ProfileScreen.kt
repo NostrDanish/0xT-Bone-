@@ -103,6 +103,7 @@ fun ProfileScreen(
     val replies by viewModel.replies.collectAsStateWithLifecycle()
     val repliedByMe by viewModel.repliedByMe.collectAsStateWithLifecycle()
     val pollVoteCounts by viewModel.pollVoteCounts.collectAsStateWithLifecycle()
+    val pollTotalVotes by viewModel.pollTotalVotes.collectAsStateWithLifecycle()
     val pollMyVotes by viewModel.pollMyVotes.collectAsStateWithLifecycle()
     val pollVoteVersion by viewModel.pollVoteVersion.collectAsStateWithLifecycle()
     val activePubkey by viewModel.activePubkey.collectAsStateWithLifecycle()
@@ -506,6 +507,7 @@ fun ProfileScreen(
                         replies = replies,
                         repliedByMe = repliedByMe,
                         pollVoteCounts = pollVoteCounts,
+                        pollTotalVotes = pollTotalVotes,
                         pollMyVotes = pollMyVotes,
                         pollVoteVersion = pollVoteVersion,
                         onPollVote = viewModel::voteOnPoll,

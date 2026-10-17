@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +17,9 @@ import kotlinx.coroutines.launch
 import social.tbone.account.Account
 import social.tbone.account.AccountRepository
 import social.tbone.logging.LogRepository
+import social.tbone.lists.PublishedRelayLists
+import social.tbone.lists.RelayListFetcher
+import social.tbone.nostr.EventKind
 import social.tbone.security.AppLockManager
 import social.tbone.settings.AppSettings
 import social.tbone.settings.AvatarMode
@@ -30,6 +34,7 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
+    private val relayListFetcher: RelayListFetcher,
     val logRepository: LogRepository,
     private val appSettings: AppSettings,
     private val lockManager: AppLockManager,
@@ -106,6 +111,52 @@ class SettingsViewModel @Inject constructor(
     val blossomDefaultServer: StateFlow<String?> = appSettings.blossomDefaultServer
     val blossomCompress: StateFlow<Boolean> = appSettings.blossomCompress
     val blossomAudioCompress: StateFlow<Boolean> = appSettings.blossomAudioCompress
+
+    private val _blossomSyncState = MutableStateFlow(PublishedListSyncState())
+    val blossomSyncState: StateFlow<PublishedListSyncState> = _blossomSyncState.asStateFlow()
+
+    /** Fetches kind 10063 and adds valid published servers without deleting local servers. */
+    fun syncBlossomServers() {
+        if (_blossomSyncState.value.syncing) return
+        viewModelScope.launch {
+            _blossomSyncState.value = PublishedListSyncState(syncing = true, message = "syncing published list…")
+            try {
+                val account = accountRepository.activeAccount.first()
+                    ?: error("Add an account before syncing a published Blossom list.")
+                val result = relayListFetcher.fetchLatest(
+                    pubkey = account.pubkey,
+                    kind = EventKind.BLOSSOM_SERVER_LIST,
+                    seedRelays = account.relays,
+                )
+                val event = result.event ?: run {
+                    _blossomSyncState.value = PublishedListSyncState(
+                        message = if (result.reachedRelays) "No published Blossom server list was found."
+                        else "Could not reach your relays. Try again.",
+                        isError = true,
+                    )
+                    return@launch
+                }
+                val imported = PublishedRelayLists.blossomServers(event)
+                if (imported.isEmpty()) {
+                    _blossomSyncState.value = PublishedListSyncState(
+                        message = "The published list contains no valid Blossom servers.",
+                        isError = true,
+                    )
+                    return@launch
+                }
+                val merged = appSettings.blossomServers.value + imported
+                appSettings.setBlossomServers(merged)
+                _blossomSyncState.value = PublishedListSyncState(
+                    message = "Synced ${imported.size} published Blossom server${if (imported.size == 1) "" else "s"}; local servers were kept.",
+                )
+            } catch (error: Exception) {
+                _blossomSyncState.value = PublishedListSyncState(
+                    message = error.message ?: "Could not sync the published Blossom list.",
+                    isError = true,
+                )
+            }
+        }
+    }
 
     fun setNoteMenuModerationEnabled(enabled: Boolean) {
         viewModelScope.launch { appSettings.setNoteMenuModerationEnabled(enabled) }

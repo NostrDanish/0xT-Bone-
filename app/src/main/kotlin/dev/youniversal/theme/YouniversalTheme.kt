@@ -146,7 +146,14 @@ public fun YouniversalTheme(
 
     val targetScheme = remember(resolvedStyle, contrast, accentSeed, hasCustomSeed, dynamicScheme, systemDark) {
         val base = when {
-            hasCustomSeed -> YouniversalTonalPalette.colorScheme(accentSeed, resolvedStyle.isDark)
+            hasCustomSeed -> {
+                val seeded = YouniversalTonalPalette.colorScheme(
+                    accentSeed,
+                    resolvedStyle.isDark,
+                    vividAccents = !resolvedStyle.isDark,
+                )
+                if (resolvedStyle == YouniversalBackgroundStyle.Cream) seeded.withCreamNeutrals() else seeded
+            }
             dynamicScheme != null && resolvedStyle == YouniversalBackgroundStyle.Cream ->
                 dynamicScheme.withCreamNeutrals()
             dynamicScheme != null -> dynamicScheme

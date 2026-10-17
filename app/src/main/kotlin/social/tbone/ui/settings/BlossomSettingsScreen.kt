@@ -52,6 +52,7 @@ fun BlossomSettingsScreen(
     val defaultServer by viewModel.blossomDefaultServer.collectAsStateWithLifecycle()
     val compress by viewModel.blossomCompress.collectAsStateWithLifecycle()
     val audioCompress by viewModel.blossomAudioCompress.collectAsStateWithLifecycle()
+    val syncState by viewModel.blossomSyncState.collectAsStateWithLifecycle()
     var customInput by remember { mutableStateOf("") }
 
     Column(
@@ -86,6 +87,27 @@ fun BlossomSettingsScreen(
                 text = "media (images & video) is uploaded to these Blossom servers. Pick one on the compose screen, or leave it random.",
                 style = BonyType.metaDim.copy(color = BonyColors.TextMute),
             )
+            Spacer(Modifier.height(12.dp))
+            Box(
+                modifier = Modifier
+                    .appBorder(1.dp, if (syncState.syncing) BonyColors.Rule else BonyColors.AccentDim)
+                    .clickable(enabled = !syncState.syncing) { viewModel.syncBlossomServers() }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
+                Text(
+                    text = if (syncState.syncing) "SYNCING PUBLISHED LIST…" else "SYNC FROM PUBLISHED LIST",
+                    style = BonyType.tag.copy(color = if (syncState.syncing) BonyColors.TextMute else BonyColors.Accent),
+                )
+            }
+            syncState.message?.let { message ->
+                Text(
+                    text = message,
+                    style = BonyType.meta.copy(
+                        color = if (syncState.isError) BonyColors.Danger else BonyColors.TextMute,
+                    ),
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
             Spacer(Modifier.height(12.dp))
 
             servers.sorted().forEach { server ->

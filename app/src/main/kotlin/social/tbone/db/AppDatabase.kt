@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         NoteAttachmentEntity::class,
         GeohashMessageEntity::class,
     ],
-    version = 13,
+    version = 14,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
@@ -142,6 +142,13 @@ abstract class AppDatabase : RoomDatabase() {
                         "PRIMARY KEY(`id`))"
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_geohash_messages_channel_created ON geohash_messages (channel_code, created_at)")
+            }
+        }
+
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Folder pins are independent from global Notes-list pins.
+                db.execSQL("ALTER TABLE notes ADD COLUMN folderPinned INTEGER NOT NULL DEFAULT 0")
             }
         }
 

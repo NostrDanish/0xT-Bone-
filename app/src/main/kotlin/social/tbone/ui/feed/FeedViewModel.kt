@@ -125,6 +125,9 @@ class FeedViewModel @Inject constructor(
     val pollVoteCounts: StateFlow<Map<String, Map<String, Int>>> = pollsRepository.counts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    val pollTotalVotes: StateFlow<Map<String, Int>> = pollsRepository.totalVotes
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     val pollMyVotes: StateFlow<Map<String, List<String>>> = pollsRepository.myVotes
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
