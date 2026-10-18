@@ -266,7 +266,7 @@ private fun buildSegmentedAnnotated(
                 is BodySeg.Profile -> {
                     val start = length
                     append(seg.label)
-                    addStyle(SpanStyle(color = BonyColors.Link), start, length)
+                    addStyle(SpanStyle(color = BonyColors.Accent), start, length)
                     actions.add(SegAction(start, length) { onProfileClick?.invoke(seg.hex) })
                 }
 

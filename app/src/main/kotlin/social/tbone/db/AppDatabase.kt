@@ -16,8 +16,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         NoteFolderEntity::class,
         NoteAttachmentEntity::class,
         GeohashMessageEntity::class,
+        BookmarkFolderEntity::class,
+        BookmarkEntity::class,
     ],
-    version = 14,
+    version = 15,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
@@ -28,6 +30,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun calendarEventDao(): CalendarEventDao
     abstract fun noteFolderDao(): NoteFolderDao
     abstract fun noteAttachmentDao(): NoteAttachmentDao
+    abstract fun bookmarkDao(): BookmarkDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -149,6 +152,29 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Folder pins are independent from global Notes-list pins.
                 db.execSQL("ALTER TABLE notes ADD COLUMN folderPinned INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Locally stored bookmarks. Folder names and event payloads are encrypted by the repository.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `bookmark_folders` (" +
+                        "`id` TEXT NOT NULL, `encryptedName` BLOB NOT NULL, `iv` BLOB NOT NULL, " +
+                        "`sortOrder` REAL NOT NULL DEFAULT 0, `createdAt` INTEGER NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `bookmarks` (" +
+                        "`id` TEXT NOT NULL, `folderId` TEXT NOT NULL, `ciphertext` BLOB NOT NULL, " +
+                        "`iv` BLOB NOT NULL, `sortOrder` REAL NOT NULL DEFAULT 0, `createdAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`id`), FOREIGN KEY(`folderId`) REFERENCES `bookmark_folders`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_bookmarks_folderId_sortOrder` " +
+                        "ON `bookmarks` (`folderId`, `sortOrder`)"
+                )
             }
         }
 

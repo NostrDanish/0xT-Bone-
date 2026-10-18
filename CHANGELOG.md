@@ -5,6 +5,23 @@ All notable changes to this fork are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-10-18
+
+### Added
+- Encrypted, device-local bookmarks with folders, note-menu saving, card views,
+  nevent links, moving, drag-reordering, and folder-wide quoted notes.
+- Global-feed paging for the 100 newest notes, older pages, and newer results;
+  Search now resolves pasted `note` and `nevent` references into events.
+- Blossom-aware share cards with author pictures, image galleries, and playable
+  video-card exports; media tiles scale with note length and the old share-card
+  tagline is removed.
+
+### Changed
+- Bounded poll option scrolling throughout Compose and the feed, with a maximum
+  of 30 poll options; tagged-user handles use the accent color.
+- Blossom upload progress is visible, and uploaded/quoted references sit below
+  the writing line in Write; the Write tab’s bottom buffer is halved.
+
 ## [0.3.55] — 2026-10-17
 
 ### Added

@@ -1,6 +1,12 @@
 package social.tbone.ui.compose
 
 import social.tbone.ui.theme.appBorder
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
@@ -26,6 +32,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -56,10 +63,16 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -110,6 +123,27 @@ fun ComposeScreen(
     var tagList by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     // Mention label ("@Name") → hex pubkey, resolved to nostr:npub1… URIs on send.
     val mentionMap = remember { mutableStateMapOf<String, String>() }
+    val mentionTransformation = remember(mentionMap.toMap()) {
+        VisualTransformation { source ->
+            val text = source.text
+            val annotated = buildAnnotatedString {
+                append(text)
+                mentionMap.keys.forEach { name ->
+                    val token = "@$name"
+                    var from = 0
+                    while (token.isNotEmpty()) {
+                        val start = text.indexOf(token, from)
+                        if (start < 0) break
+                        val end = start + token.length
+                        val beginsToken = start == 0 || !text[start - 1].isLetterOrDigit()
+                        if (beginsToken) addStyle(SpanStyle(color = BonyColors.Accent), start, end)
+                        from = end
+                    }
+                }
+            }
+            TransformedText(annotated, OffsetMapping.Identity)
+        }
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     val focusRequester = remember { FocusRequester() }
 
@@ -145,10 +179,34 @@ fun ComposeScreen(
         focusRequester.requestFocus()
     }
 
+    // Uploaded media references live below the writing area. The caret stays
+    // where the user was typing, so the first line remains available for prose.
+    fun insertReferenceOnSecondLine(url: String) {
+        val original = fieldValue.text
+        val base = original.trimEnd()
+        val referenceSection = base.substringAfterLast("\n\n", missingDelimiterValue = "")
+        val existingReferenceLines = referenceSection.lineSequence().filter { it.isNotBlank() }.toList()
+        val alreadyHasReferenceSection = "\n\n" in base && existingReferenceLines.isNotEmpty() &&
+            existingReferenceLines.all { line ->
+                val reference = line.trim()
+                reference.startsWith("nostr:") || reference.startsWith("https://") || reference.startsWith("http://")
+            }
+        val separator = if (alreadyHasReferenceSection) "\n" else "\n\n"
+        val nextText = "$base$separator$url "
+        val selection = fieldValue.selection
+        fieldValue = fieldValue.copy(
+            text = nextText,
+            selection = TextRange(
+                selection.start.coerceAtMost(nextText.length),
+                selection.end.coerceAtMost(nextText.length),
+            ),
+        )
+    }
+
     // Queue-backed flows preserve every URL/error when a multi-picker returns
     // several items or the screen briefly stops collecting.
     LaunchedEffect(viewModel) {
-        viewModel.uploadedMediaUrls.collect { url -> insertCharAtCaret("$url ") }
+        viewModel.uploadedMediaUrls.collect { url -> insertReferenceOnSecondLine(url) }
     }
     LaunchedEffect(viewModel) {
         viewModel.uploadErrors.collect { error -> snackbarHostState.showSnackbar("upload failed: $error") }
@@ -172,7 +230,7 @@ fun ComposeScreen(
     }
 
     val isReply = uiState.replyToEvent != null
-    val isQuote = uiState.quoteToEvent != null
+    val isQuote = uiState.quoteToEvent != null || uiState.quoteFolderEvents.isNotEmpty()
     val title = when {
         isReply -> "compose.reply"
         isQuote -> "compose.quote"
@@ -260,6 +318,10 @@ fun ComposeScreen(
                 ComposeContextCard(event = original, label = "↳ QUOTING")
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
             }
+            if (uiState.quoteFolderEvents.isNotEmpty()) {
+                FolderQuoteContextCard(count = uiState.quoteFolderEvents.size)
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
+            }
 
             // ── Editor ────────────────────────────────────────────────────────
             Box(modifier = Modifier.weight(1f).padding(14.dp)) {
@@ -287,6 +349,7 @@ fun ComposeScreen(
                         .fillMaxSize()
                         .focusRequester(focusRequester),
                     textStyle = BonyType.body.copy(color = BonyColors.Text),
+                    visualTransformation = mentionTransformation,
                     cursorBrush = SolidColor(BonyColors.Accent),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     enabled = !uiState.isPublishing,
@@ -422,7 +485,7 @@ fun ComposeScreen(
                     style = BonyType.metaDim.copy(color = BonyColors.TextMute),
                 )
             }
-            Spacer(Modifier.height(48.dp))
+            Spacer(Modifier.height(24.dp))
         }
 
         SnackbarHost(
@@ -433,6 +496,28 @@ fun ComposeScreen(
 }
 
 // ── Blossom server chip ──────────────────────────────────────────────────────
+
+@Composable
+private fun SquareUploadSpinner() {
+    val transition = rememberInfiniteTransition(label = "blossom-upload")
+    val rotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "blossom-upload-rotation",
+    )
+    Box(
+        modifier = Modifier
+            .size(15.dp)
+            .graphicsLayer { rotationZ = rotation }
+            .border(1.5.dp, BonyColors.Accent, RoundedCornerShape(3.dp))
+            .padding(3.dp)
+            .border(1.dp, BonyColors.AccentDim, RoundedCornerShape(1.dp)),
+    )
+}
 
 @Composable
 private fun ComposeMediaAction(
@@ -448,15 +533,19 @@ private fun ComposeMediaAction(
             .clickable(enabled = enabled, onClick = onClick)
             .padding(vertical = 4.dp),
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            modifier = Modifier.size(16.dp),
-            tint = if (uploading) BonyColors.Accent else BonyColors.TextMute,
-        )
+        if (uploading) {
+            SquareUploadSpinner()
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                modifier = Modifier.size(16.dp),
+                tint = BonyColors.TextMute,
+            )
+        }
         Spacer(Modifier.width(4.dp))
         Text(
-            text = if (uploading) "…uploading" else label,
+            text = if (uploading) "uploading…" else label,
             style = BonyType.meta.copy(
                 color = if (uploading) BonyColors.Accent else BonyColors.TextMute,
             ),
@@ -604,6 +693,23 @@ private fun MentionRow(match: ProfileMatch, onClick: () -> Unit) {
 }
 
 @Composable
+private fun FolderQuoteContextCard(count: Int) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(BonyColors.SurfaceAlt)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Text("↳ QUOTING BOOKMARK FOLDER", style = BonyType.caption.copy(color = BonyColors.TextMute))
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "$count saved ${if (count == 1) "note" else "notes"} · nevent references are on the lines below your text",
+            style = BonyType.meta.copy(color = BonyColors.Accent),
+        )
+    }
+}
+
+@Composable
 private fun ComposeContextCard(event: Event, label: String) {
     val noteId = remember(event.id) { Nip19.hexToNote(event.id) }
 
@@ -679,8 +785,13 @@ private fun PollBuilder(
         )
         Spacer(Modifier.height(8.dp))
 
-        options.forEachIndexed { index, option ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 190.dp),
+        ) {
+            itemsIndexed(options) { index, option ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = if (multiple) "☐" else "○",
                     style = BonyType.meta.copy(color = BonyColors.TextMute),
@@ -718,7 +829,8 @@ private fun PollBuilder(
                     )
                 }
             }
-            Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(6.dp))
+            }
         }
 
         if (options.size < Tunables.MAX_POLL_OPTIONS) {

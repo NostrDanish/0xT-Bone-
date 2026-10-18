@@ -12,7 +12,7 @@ object Tunables {
     const val MAX_FEED_EVENTS = 300
 
     /** Maximum poll choices offered by the composer. */
-    const val MAX_POLL_OPTIONS = 20
+    const val MAX_POLL_OPTIONS = 30
 
     /** Maximum size of a kind-6 repost content field before parsing is skipped. */
     const val MAX_REPOST_CONTENT_BYTES = 64 * 1024

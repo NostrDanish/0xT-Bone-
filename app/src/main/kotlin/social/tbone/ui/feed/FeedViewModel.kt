@@ -52,6 +52,7 @@ import timber.log.Timber
 import social.tbone.profile.ProfileRepository
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.UUID
 import javax.inject.Inject
 
 enum class FeedTab { HOME, GLOBAL }
@@ -60,7 +61,25 @@ data class FeedUiState(
     val events: List<Event> = emptyList(),
     val isLoading: Boolean = true,
     val error: String? = null,
+    val globalOlderLoading: Boolean = false,
+    val globalNewerLoading: Boolean = false,
+    val globalCanLoadOlder: Boolean = false,
 )
+
+private enum class GlobalPageKind { OLDER, NEWER }
+
+private class GlobalPageRequest(
+    val subId: String,
+    val kind: GlobalPageKind,
+    val expectedRelays: Set<String>,
+    val startOldest: Long? = null,
+    val startNewest: Long? = null,
+    val startVisibleLimit: Int = 0,
+    val startKnownIds: Set<String> = emptySet(),
+) {
+    val events = ConcurrentHashMap<String, Event>()
+    val eoseRelays: MutableSet<String> = ConcurrentHashMap.newKeySet()
+}
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -77,6 +96,7 @@ class FeedViewModel @Inject constructor(
     private val notificationsRepository: NotificationsRepository,
     private val offlineLists: OfflineListRepository,
     private val muteRepository: MuteListRepository,
+    private val eventOpenCoordinator: EventOpenCoordinator,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(FeedUiState())
@@ -90,6 +110,9 @@ class FeedViewModel @Inject constructor(
 
     private val _scrollToTop = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val scrollToTop: SharedFlow<Unit> = _scrollToTop.asSharedFlow()
+    private val _pendingEventScroll = MutableStateFlow<String?>(null)
+    val pendingEventScroll: StateFlow<String?> = _pendingEventScroll.asStateFlow()
+    @Volatile private var focusedEventId: String? = null
 
     val profiles: StateFlow<Map<String, ProfileContent>> = profileRepository.profiles
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
@@ -162,6 +185,14 @@ class FeedViewModel @Inject constructor(
 
     private var collectJob: Job? = null
     private var feedSubId: String? = null
+    @Volatile private var globalOlderSubId: String? = null
+    @Volatile private var globalNewerSubId: String? = null
+    @Volatile private var globalOlderRequest: GlobalPageRequest? = null
+    @Volatile private var globalNewerRequest: GlobalPageRequest? = null
+    @Volatile private var globalInitialExpectedRelays: Set<String> = emptySet()
+    private val globalInitialEoseRelays: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    @Volatile private var globalOlderCursor: Long? = null
+    @Volatile private var globalVisibleLimit: Int = GLOBAL_PAGE_SIZE
     private var followSubId: String? = null
     private var metadataSubId: String? = null
     private var relayListSubId: String? = null
@@ -195,6 +226,9 @@ class FeedViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            eventOpenCoordinator.events.collect { event -> openEventInMainFeed(event) }
+        }
+        viewModelScope.launch {
             // Only reload the feed when the active pubkey changes, not on every
             // account property update (relays, follows, displayName, etc.).
             // Incremental updates like relay selection and follow list persist
@@ -202,7 +236,9 @@ class FeedViewModel @Inject constructor(
             accountRepository.activeAccount
                 .distinctUntilChanged { old, new -> old?.pubkey == new?.pubkey }
                 .collect { account ->
-                    if (account != null) loadFeed(account) else clearFeed()
+                    if (account == null) clearFeed()
+                    else if (_currentFeed.value == FeedTab.GLOBAL) loadGlobalFeed(account)
+                    else loadFeed(account)
                 }
         }
 
@@ -229,7 +265,7 @@ class FeedViewModel @Inject constructor(
         // Re-filter what is already on screen when the mute/block list changes.
         viewModelScope.launch {
             muteRepository.effectiveMuted.collect {
-                val snapshot = synchronized(feedEvents) { feedEvents.take(MAX_FEED_EVENTS) }
+                val snapshot = synchronized(feedEvents) { feedEvents.take(feedEventLimit()) }
                 _uiState.update { state -> state.copy(events = applyContentFilter(snapshot)) }
             }
         }
@@ -249,6 +285,196 @@ class FeedViewModel @Inject constructor(
         when (tab) {
             FeedTab.HOME -> loadFeed(account)
             FeedTab.GLOBAL -> loadGlobalFeed(account)
+        }
+    }
+
+    /** Fetch the next 100 events strictly older than the oldest Global item. */
+    fun loadOlderGlobal() {
+        if (_currentFeed.value != FeedTab.GLOBAL || _uiState.value.globalOlderLoading ||
+            _uiState.value.globalNewerLoading || !_uiState.value.globalCanLoadOlder ||
+            globalVisibleLimit >= MAX_GLOBAL_EVENTS
+        ) return
+        val prefetchedCount = synchronized(feedEvents) { feedEvents.size }
+        if (prefetchedCount > globalVisibleLimit) {
+            globalVisibleLimit = (globalVisibleLimit + GLOBAL_PAGE_SIZE).coerceAtMost(MAX_GLOBAL_EVENTS)
+            val snapshot = synchronized(feedEvents) { feedEvents.take(feedEventLimit()) }
+            _uiState.update { state ->
+                state.copy(
+                    events = applyContentFilter(snapshot),
+                    globalOlderLoading = false,
+                    globalCanLoadOlder = globalVisibleLimit < MAX_GLOBAL_EVENTS &&
+                        (prefetchedCount > globalVisibleLimit || state.globalCanLoadOlder),
+                )
+            }
+            return
+        }
+        val oldest = globalOlderCursor ?: synchronized(feedEvents) { feedEvents.lastOrNull()?.createdAt } ?: return
+        if (oldest <= 0L) return
+        val account = activeAccount.value ?: return
+        account.relays.ifEmpty { DEFAULT_RELAYS }.forEach { pool.addRelay(it) }
+
+        val subId = UUID.randomUUID().toString().take(8)
+        val request = GlobalPageRequest(
+            subId = subId,
+            kind = GlobalPageKind.OLDER,
+            expectedRelays = pool.relayUrls().map(RelayPool::normalize).toSet(),
+            startOldest = oldest,
+        )
+        globalOlderRequest = request
+        globalOlderSubId = subId
+        activeSubIds.add(subId)
+        _uiState.update { it.copy(globalOlderLoading = true) }
+        pool.subscribe(
+            listOf(
+                Filter(
+                    kinds = listOf(EventKind.TEXT_NOTE, EventKind.REPOST, EventKind.POLL),
+                    until = oldest - 1,
+                    limit = GLOBAL_PAGE_SIZE,
+                ),
+            ),
+            id = subId,
+            label = "global-older",
+        )
+        scheduleGlobalPageTimeout(request)
+    }
+
+    /** Fetch all relay-available public events newer than the current Global set. */
+    fun loadNewerGlobal() {
+        if (_currentFeed.value != FeedTab.GLOBAL || _uiState.value.globalNewerLoading ||
+            _uiState.value.globalOlderLoading
+        ) return
+        val newest = synchronized(feedEvents) { feedEvents.firstOrNull()?.createdAt } ?: return
+        // Remember every item already buffered, not only visible items; a newer-page
+        // result must not accidentally reveal prefetched older notes and shift the feed.
+        val startKnownIds = synchronized(feedEvents) { feedEvents.mapTo(mutableSetOf()) { it.id } }
+        val startVisibleLimit = globalVisibleLimit
+        val account = activeAccount.value ?: return
+        account.relays.ifEmpty { DEFAULT_RELAYS }.forEach { pool.addRelay(it) }
+
+        val subId = UUID.randomUUID().toString().take(8)
+        val request = GlobalPageRequest(
+            subId = subId,
+            kind = GlobalPageKind.NEWER,
+            expectedRelays = pool.relayUrls().map(RelayPool::normalize).toSet(),
+            startNewest = newest,
+            startVisibleLimit = startVisibleLimit,
+            startKnownIds = startKnownIds,
+        )
+        globalNewerRequest = request
+        globalNewerSubId = subId
+        activeSubIds.add(subId)
+        _uiState.update { it.copy(globalNewerLoading = true) }
+        pool.subscribe(
+            listOf(
+                Filter(
+                    kinds = listOf(EventKind.TEXT_NOTE, EventKind.REPOST, EventKind.POLL),
+                    since = newest,
+                    limit = GLOBAL_NEWER_LIMIT,
+                ),
+            ),
+            id = subId,
+            label = "global-newer",
+        )
+        scheduleGlobalPageTimeout(request)
+    }
+
+    private fun scheduleGlobalPageTimeout(request: GlobalPageRequest) {
+        viewModelScope.launch {
+            delay(GLOBAL_PAGE_TIMEOUT_MS)
+            finishGlobalPage(request)
+        }
+    }
+
+    private fun handleGlobalPageEvent(request: GlobalPageRequest?, event: Event) {
+        if (request == null || _currentFeed.value != FeedTab.GLOBAL) return
+        val current = when (request.kind) {
+            GlobalPageKind.OLDER -> globalOlderRequest === request
+            GlobalPageKind.NEWER -> globalNewerRequest === request
+        }
+        if (!current || EventKind.isPrivateMessaging(event.kind)) return
+        if (request.events.size >= MAX_GLOBAL_EVENTS && !request.events.containsKey(event.id)) return
+        when (event.kind) {
+            EventKind.TEXT_NOTE -> if (!isReplyEvent(event)) request.events.putIfAbsent(event.id, event)
+            EventKind.REPOST, EventKind.POLL -> request.events.putIfAbsent(event.id, event)
+        }
+    }
+
+    private fun handleGlobalPageEose(request: GlobalPageRequest?, relayUrl: String) {
+        if (request == null) return
+        val current = when (request.kind) {
+            GlobalPageKind.OLDER -> globalOlderRequest === request
+            GlobalPageKind.NEWER -> globalNewerRequest === request
+        }
+        if (!current) return
+        request.eoseRelays.add(RelayPool.normalize(relayUrl))
+        if (request.expectedRelays.isEmpty() || request.eoseRelays.containsAll(request.expectedRelays)) {
+            finishGlobalPage(request)
+        }
+    }
+
+    private fun finishGlobalPage(request: GlobalPageRequest) {
+        val current = when (request.kind) {
+            GlobalPageKind.OLDER -> globalOlderRequest === request
+            GlobalPageKind.NEWER -> globalNewerRequest === request
+        }
+        if (!current) return
+
+        unsub(request.subId)
+        when (request.kind) {
+            GlobalPageKind.OLDER -> {
+                globalOlderRequest = null
+                globalOlderSubId = null
+            }
+            GlobalPageKind.NEWER -> {
+                globalNewerRequest = null
+                globalNewerSubId = null
+            }
+        }
+
+        val incoming = request.events.values.toList()
+        if (incoming.isNotEmpty()) synchronized(feedEvents) { feedEvents.addAll(incoming) }
+
+        if (request.kind == GlobalPageKind.OLDER && incoming.isNotEmpty()) {
+            globalVisibleLimit = (globalVisibleLimit + GLOBAL_PAGE_SIZE).coerceAtMost(MAX_GLOBAL_EVENTS)
+        } else if (request.kind == GlobalPageKind.NEWER) {
+            val startNewest = request.startNewest
+            if (startNewest != null) {
+                val newlyVisible = request.events.values.count {
+                    it.createdAt >= startNewest && it.id !in request.startKnownIds
+                }
+                globalVisibleLimit = maxOf(
+                    globalVisibleLimit,
+                    (request.startVisibleLimit + newlyVisible).coerceAtMost(MAX_GLOBAL_EVENTS),
+                )
+            }
+        }
+
+        val snapshot = synchronized(feedEvents) { feedEvents.take(feedEventLimit()) }
+        if (incoming.isNotEmpty() || request.kind == GlobalPageKind.NEWER) {
+            _uiState.update { state -> state.copy(events = applyContentFilter(snapshot)) }
+        }
+        if (incoming.isNotEmpty()) {
+            fetchQuotesForEvents(incoming)
+            fetchProfilesForEvents(incoming)
+            reactionsRepository.subscribeTo(incoming.map { it.id })
+            repliesRepository.subscribeTo(incoming.map { it.id })
+            pollsRepository.subscribeTo(incoming.filter { it.kind == EventKind.POLL }.map { it.id })
+        }
+
+        if (request.kind == GlobalPageKind.OLDER) {
+            val oldestNow = synchronized(feedEvents) { feedEvents.lastOrNull()?.createdAt }
+            if (oldestNow != null) globalOlderCursor = oldestNow
+            val morePrefetched = synchronized(feedEvents) { feedEvents.size > globalVisibleLimit }
+            val reachedLimit = globalVisibleLimit >= MAX_GLOBAL_EVENTS
+            val foundOlder = oldestNow != null && request.startOldest != null && oldestNow < request.startOldest
+            _uiState.update {
+                it.copy(
+                    globalOlderLoading = false,
+                    globalCanLoadOlder = !reachedLimit && (morePrefetched || foundOlder),
+                )
+            }
+        } else {
+            _uiState.update { it.copy(globalNewerLoading = false) }
         }
     }
 
@@ -272,6 +498,25 @@ class FeedViewModel @Inject constructor(
 
     fun react(event: Event) = reactionsRepository.react(event)
 
+    /** Adds a resolved, public event to the visible feed and scrolls directly to it. */
+    private fun openEventInMainFeed(event: Event) {
+        if (EventKind.isPrivateMessaging(event.kind)) return
+        focusedEventId = event.id
+        synchronized(feedEvents) { feedEvents.add(event) }
+        val visible = listOf(event) + _uiState.value.events.filterNot { it.id == event.id }
+        _uiState.update { it.copy(events = applyContentFilter(visible)) }
+        fetchQuotesForEvents(listOf(event))
+        fetchProfilesForEvents(listOf(event))
+        reactionsRepository.subscribeTo(listOf(event.id))
+        repliesRepository.subscribeTo(listOf(event.id))
+        if (event.kind == EventKind.POLL) pollsRepository.subscribeTo(listOf(event.id))
+        _pendingEventScroll.value = event.id
+    }
+
+    fun consumePendingEventScroll(eventId: String) {
+        if (_pendingEventScroll.value == eventId) _pendingEventScroll.value = null
+    }
+
     fun voteOnPoll(poll: Event, optionIds: List<String>) =
         pollsRepository.vote(poll, optionIds)
 
@@ -289,19 +534,43 @@ class FeedViewModel @Inject constructor(
         val blocked = muteRepository.effectiveMuted.value
         val hideNsfw = appSettings.hideNsfw.value
         val hideWords = appSettings.hideWords.value
-        if (blocked.isEmpty() && !hideNsfw && hideWords.isEmpty()) return publicEvents
-        return publicEvents.filter { !ContentFilter.shouldHide(it, blocked, hideNsfw, hideWords) }
+        val filtered = if (blocked.isEmpty() && !hideNsfw && hideWords.isEmpty()) {
+            publicEvents
+        } else {
+            publicEvents.filter { !ContentFilter.shouldHide(it, blocked, hideNsfw, hideWords) }
+        }
+        val focused = focusedEventId?.let { id ->
+            publicEvents.firstOrNull { it.id == id }
+                ?: synchronized(feedEvents) { feedEvents.firstOrNull { it.id == id } }
+        }
+        return if (focused != null && filtered.none { it.id == focused.id }) {
+            listOf(focused) + filtered
+        } else {
+            filtered
+        }
     }
+
+    private fun feedEventLimit(): Int =
+        if (_currentFeed.value == FeedTab.GLOBAL) globalVisibleLimit.coerceIn(1, MAX_GLOBAL_EVENTS) else MAX_FEED_EVENTS
 
     fun refresh() {
         val account = activeAccount.value ?: return
-        loadFeed(account, clearEvents = false)
+        if (_currentFeed.value == FeedTab.GLOBAL) loadGlobalFeed(account)
+        else loadFeed(account, clearEvents = false)
     }
 
     private fun loadFeed(account: Account, clearEvents: Boolean = true) {
         collectJob?.cancel()
         activeSubIds.clear()
         unsub(feedSubId); feedSubId = null
+        unsub(globalOlderSubId); globalOlderSubId = null
+        unsub(globalNewerSubId); globalNewerSubId = null
+        globalOlderRequest = null
+        globalNewerRequest = null
+        globalInitialExpectedRelays = emptySet()
+        globalInitialEoseRelays.clear()
+        globalOlderCursor = null
+        globalVisibleLimit = GLOBAL_PAGE_SIZE
         unsub(followSubId); followSubId = null
         unsub(metadataSubId); metadataSubId = null
         unsub(relayListSubId); relayListSubId = null
@@ -312,6 +581,8 @@ class FeedViewModel @Inject constructor(
         feedSettled = false
         followsReceived = false
         pendingBuffer.clear()
+        focusedEventId = null
+        _pendingEventScroll.value = null
         requestedQuoteIds.clear()
         _unresolvedQuoteIds.value = emptySet()
         quoteSubIds.forEach { pool.unsubscribe(it) }
@@ -321,8 +592,17 @@ class FeedViewModel @Inject constructor(
         if (clearEvents) synchronized(feedEvents) { feedEvents.clear() }
 
         _uiState.update {
-            if (clearEvents) it.copy(events = emptyList(), isLoading = true, error = null)
-            else it.copy(isLoading = true, error = null)
+            if (clearEvents) {
+                it.copy(
+                    events = emptyList(), isLoading = true, error = null,
+                    globalOlderLoading = false, globalNewerLoading = false, globalCanLoadOlder = false,
+                )
+            } else {
+                it.copy(
+                    isLoading = true, error = null,
+                    globalOlderLoading = false, globalNewerLoading = false, globalCanLoadOlder = false,
+                )
+            }
         }
 
         loadJob?.cancel()
@@ -348,7 +628,7 @@ class FeedViewModel @Inject constructor(
                 val allowed = localFollows + account.pubkey
                 val snapshot = synchronized(feedEvents) {
                     feedEvents.removeAll { it.pubkey !in allowed }
-                    feedEvents.take(MAX_FEED_EVENTS)
+                    feedEvents.take(feedEventLimit())
                 }
                 _uiState.update { state -> state.copy(events = applyContentFilter(snapshot)) }
             }
@@ -363,7 +643,7 @@ class FeedViewModel @Inject constructor(
                     if (cached.isNotEmpty()) {
                         val snapshot = synchronized(feedEvents) {
                             feedEvents.addAll(cached)
-                            feedEvents.take(MAX_FEED_EVENTS)
+                            feedEvents.take(feedEventLimit())
                         }
                         _uiState.update { state -> state.copy(events = applyContentFilter(snapshot)) }
                         fetchProfilesForEvents(cached)
@@ -437,6 +717,14 @@ class FeedViewModel @Inject constructor(
         collectJob?.cancel()
         activeSubIds.clear()
         unsub(feedSubId); feedSubId = null
+        unsub(globalOlderSubId); globalOlderSubId = null
+        unsub(globalNewerSubId); globalNewerSubId = null
+        globalOlderRequest = null
+        globalNewerRequest = null
+        globalInitialExpectedRelays = emptySet()
+        globalInitialEoseRelays.clear()
+        globalOlderCursor = null
+        globalVisibleLimit = GLOBAL_PAGE_SIZE
         unsub(followSubId); followSubId = null
         unsub(metadataSubId); metadataSubId = null
         unsub(relayListSubId); relayListSubId = null
@@ -453,18 +741,31 @@ class FeedViewModel @Inject constructor(
         metadataFetchSubIds.forEach { pool.unsubscribe(it) }
         metadataFetchSubIds.clear()
         synchronized(feedEvents) { feedEvents.clear() }
+        focusedEventId = null
+        _pendingEventScroll.value = null
 
         // Reset so returning to HOME skips the cache preload — global events must not
         // bleed into the home feed cache.
         lastLoadedPubkey = null
 
-        _uiState.update { it.copy(events = emptyList(), isLoading = true, error = null) }
+        _uiState.update {
+            it.copy(
+                events = emptyList(),
+                isLoading = true,
+                error = null,
+                globalOlderLoading = false,
+                globalNewerLoading = false,
+                globalCanLoadOlder = false,
+            )
+        }
 
         val relays = account.relays.ifEmpty { DEFAULT_RELAYS }
         relays.forEach { pool.addRelay(it) }
+        globalInitialExpectedRelays = pool.relayUrls().map(RelayPool::normalize).toSet()
+        globalInitialEoseRelays.clear()
 
         feedSubId = sub(listOf(
-            Filter(kinds = listOf(EventKind.TEXT_NOTE, EventKind.REPOST, EventKind.POLL), limit = 100)
+            Filter(kinds = listOf(EventKind.TEXT_NOTE, EventKind.REPOST, EventKind.POLL), limit = GLOBAL_PAGE_SIZE)
         ))
 
         // No follow-list phase — mark followsReceived so EOSE on feedSubId triggers flush
@@ -473,15 +774,31 @@ class FeedViewModel @Inject constructor(
         collectJob = viewModelScope.launch(Dispatchers.Default) { collectMessages() }
 
         viewModelScope.launch {
-            delay(15_000)
-            if (!feedSettled) { feedSettled = true; flushBuffer() }
-            _uiState.update { if (it.isLoading) it.copy(isLoading = false) else it }
+            delay(GLOBAL_PAGE_TIMEOUT_MS)
+            settleGlobalInitial()
         }
     }
 
-    /** Subscribe and track the ID so we can filter events by it. */
-    private fun sub(filters: List<Filter>, label: String = "feed"): String =
-        pool.subscribe(filters, label = label).also { activeSubIds.add(it) }
+    private fun settleGlobalInitial() {
+        if (!feedSettled) {
+            feedSettled = true
+            flushBuffer()
+        }
+        val oldest = synchronized(feedEvents) { feedEvents.lastOrNull()?.createdAt }
+        globalOlderCursor = oldest
+        val canLoadOlder = synchronized(feedEvents) { feedEvents.size >= GLOBAL_PAGE_SIZE }
+        _uiState.update {
+            it.copy(isLoading = false, globalCanLoadOlder = canLoadOlder)
+        }
+    }
+
+    /** Subscribe and track the ID before sending REQ so fast relays cannot beat registration. */
+    private fun sub(filters: List<Filter>, label: String = "feed"): String {
+        val id = UUID.randomUUID().toString().take(8)
+        activeSubIds.add(id)
+        pool.subscribe(filters, id = id, label = label)
+        return id
+    }
 
     /** Unsubscribe and stop tracking the ID. */
     private fun unsub(id: String?) {
@@ -495,6 +812,12 @@ class FeedViewModel @Inject constructor(
             when (val msg = poolMessage.message) {
                 is RelayMessage.EventMessage -> {
                     when {
+                        msg.subscriptionId == globalOlderSubId -> {
+                            if (msg.event.verify()) handleGlobalPageEvent(globalOlderRequest, msg.event)
+                        }
+                        msg.subscriptionId == globalNewerSubId -> {
+                            if (msg.event.verify()) handleGlobalPageEvent(globalNewerRequest, msg.event)
+                        }
                         msg.subscriptionId in activeSubIds -> {
                             if (msg.event.verify()) handleEvent(msg.event)
                         }
@@ -521,6 +844,18 @@ class FeedViewModel @Inject constructor(
                             metadataFetchSubIds.remove(msg.subscriptionId)
                             unsub(msg.subscriptionId)
                         }
+                        msg.subscriptionId == globalOlderSubId -> {
+                            handleGlobalPageEose(globalOlderRequest, poolMessage.relayUrl)
+                        }
+                        msg.subscriptionId == globalNewerSubId -> {
+                            handleGlobalPageEose(globalNewerRequest, poolMessage.relayUrl)
+                        }
+                        msg.subscriptionId == feedSubId && _currentFeed.value == FeedTab.GLOBAL -> {
+                            globalInitialEoseRelays.add(RelayPool.normalize(poolMessage.relayUrl))
+                            if (globalInitialExpectedRelays.isEmpty() ||
+                                globalInitialEoseRelays.containsAll(globalInitialExpectedRelays)
+                            ) settleGlobalInitial()
+                        }
                         msg.subscriptionId !in activeSubIds -> return@collect
                         msg.subscriptionId == followsRelayListSubId -> {
                             unsub(followsRelayListSubId); followsRelayListSubId = null
@@ -531,7 +866,11 @@ class FeedViewModel @Inject constructor(
                         msg.subscriptionId == feedSubId && followsReceived && !feedSettled -> {
                             feedSettled = true
                             flushBuffer()
-                            _uiState.update { it.copy(isLoading = false) }
+                            val canLoadOlder = _currentFeed.value == FeedTab.GLOBAL &&
+                                synchronized(feedEvents) { feedEvents.size >= GLOBAL_PAGE_SIZE }
+                            _uiState.update {
+                                it.copy(isLoading = false, globalCanLoadOlder = canLoadOlder)
+                            }
                         }
                         // Follow subscription returned nothing (user has no follows) —
                         // fall back to showing own notes.
@@ -558,6 +897,14 @@ class FeedViewModel @Inject constructor(
         if (event.kind != EventKind.REPOST) fetchQuotesForEvents(listOf(event))
     }
 
+    private fun isReplyEvent(event: Event): Boolean {
+        val eTags = event.parsedTags.filter { it.name == "e" }
+        return eTags.size > 1 || eTags.any { tag ->
+            val marker = tag.value(3) ?: tag.value(2)
+            marker == "reply" || marker == "root"
+        }
+    }
+
     private fun handleEvent(event: Event) {
         if (EventKind.isPrivateMessaging(event.kind)) return
         when (event.kind) {
@@ -580,15 +927,7 @@ class FeedViewModel @Inject constructor(
                 else handleFollowRelayList(event)
             }
             EventKind.TEXT_NOTE   -> {
-                // Skip replies per NIP-10: a note is a reply if it has an e-tag marked
-                // "reply" or "root", or (positional fallback) more than one e-tag.
-                // Allow "mention"-only e-tags through so threadable mentions appear in feed.
-                val eTags = event.parsedTags.filter { it.name == "e" }
-                val isReply = eTags.size > 1 || eTags.any { tag ->
-                    val marker = tag.value(3) ?: tag.value(2)
-                    marker == "reply" || marker == "root"
-                }
-                if (isReply) return
+                if (isReplyEvent(event)) return
                 addToFeed(event)
             }
             EventKind.REPOST      -> addToFeed(event)
@@ -727,9 +1066,19 @@ class FeedViewModel @Inject constructor(
         }
         val snapshot = synchronized(feedEvents) {
             feedEvents.add(event)
-            feedEvents.take(MAX_FEED_EVENTS)
+            feedEvents.take(feedEventLimit())
         }
-        _uiState.update { state -> state.copy(events = applyContentFilter(snapshot)) }
+        if (_currentFeed.value == FeedTab.GLOBAL) {
+            globalOlderCursor = synchronized(feedEvents) { feedEvents.lastOrNull()?.createdAt }
+        }
+        _uiState.update { state ->
+            state.copy(
+                events = applyContentFilter(snapshot),
+                globalCanLoadOlder = if (_currentFeed.value == FeedTab.GLOBAL && snapshot.size >= GLOBAL_PAGE_SIZE) {
+                    true
+                } else state.globalCanLoadOlder,
+            )
+        }
         fetchQuotesForEvents(listOf(event))
         fetchProfilesForEvents(listOf(event))
         reactionsRepository.subscribeTo(listOf(event.id))
@@ -743,7 +1092,7 @@ class FeedViewModel @Inject constructor(
         if (events.isEmpty()) return
         val snapshot = synchronized(feedEvents) {
             feedEvents.addAll(events)
-            feedEvents.take(MAX_FEED_EVENTS)
+            feedEvents.take(feedEventLimit())
         }
         _uiState.update { state -> state.copy(events = applyContentFilter(snapshot)) }
         _scrollToTop.tryEmit(Unit)
@@ -834,6 +1183,14 @@ class FeedViewModel @Inject constructor(
         collectJob?.cancel()
         activeSubIds.clear()
         unsub(feedSubId); feedSubId = null
+        unsub(globalOlderSubId); globalOlderSubId = null
+        unsub(globalNewerSubId); globalNewerSubId = null
+        globalOlderRequest = null
+        globalNewerRequest = null
+        globalInitialExpectedRelays = emptySet()
+        globalInitialEoseRelays.clear()
+        globalOlderCursor = null
+        globalVisibleLimit = GLOBAL_PAGE_SIZE
         unsub(followSubId); followSubId = null
         unsub(metadataSubId); metadataSubId = null
         unsub(relayListSubId); relayListSubId = null
@@ -845,6 +1202,8 @@ class FeedViewModel @Inject constructor(
         metadataFetchSubIds.forEach { pool.unsubscribe(it) }
         metadataFetchSubIds.clear()
         synchronized(feedEvents) { feedEvents.clear() }
+        focusedEventId = null
+        _pendingEventScroll.value = null
         _uiState.update { FeedUiState(isLoading = false) }
     }
 
@@ -921,6 +1280,10 @@ class FeedViewModel @Inject constructor(
     }
 
     companion object {
+        private const val GLOBAL_PAGE_SIZE = 100
+        private const val GLOBAL_NEWER_LIMIT = 10_000
+        private const val MAX_GLOBAL_EVENTS = 10_000
+        private const val GLOBAL_PAGE_TIMEOUT_MS = 15_000L
         private val MAX_FEED_EVENTS get() = Tunables.MAX_FEED_EVENTS
         private val MAX_OUTBOX_RELAYS get() = Tunables.MAX_OUTBOX_RELAYS
         private val MAX_REPOST_CONTENT_BYTES get() = Tunables.MAX_REPOST_CONTENT_BYTES

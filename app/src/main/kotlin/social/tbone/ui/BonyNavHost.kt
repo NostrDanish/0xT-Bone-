@@ -62,6 +62,7 @@ import social.tbone.ui.toolbox.calendar.CalendarScreen
 import social.tbone.ui.toolbox.geohash.GeohashChannelScreen
 import social.tbone.ui.toolbox.geohash.GeohashChatScreen
 import social.tbone.ui.feed.FeedScreen
+import social.tbone.ui.bookmarks.BookmarksScreen
 import social.tbone.ui.hashtag.HashtagFeedScreen
 import social.tbone.ui.onboarding.OnboardingScreen
 import social.tbone.ui.profile.ProfileScreen
@@ -82,7 +83,7 @@ import javax.inject.Inject
 private const val ROUTE_ONBOARDING        = "onboarding"
 private const val ROUTE_FEED              = "feed"
 private const val ROUTE_THREAD            = "thread/{eventId}"
-private const val ROUTE_COMPOSE           = "compose?replyToId={replyToId}&quoteToId={quoteToId}&draft={draft}&audioPath={audioPath}"
+private const val ROUTE_COMPOSE           = "compose?replyToId={replyToId}&quoteToId={quoteToId}&quoteFolderId={quoteFolderId}&draft={draft}&audioPath={audioPath}"
 private const val ROUTE_SETTINGS          = "settings"
 private const val ROUTE_CONTENT_FILTERS   = "content_filters"
 private const val ROUTE_BLOSSOM           = "blossom_settings"
@@ -96,6 +97,8 @@ private const val ROUTE_ACCOUNT_MANAGEMENT = "account_management"
 private const val ROUTE_RELAY_MANAGEMENT  = "relay_management"
 private const val ROUTE_NOTIFICATIONS     = "notifications"
 private const val ROUTE_NOTES              = "notes"
+private const val ROUTE_BOOKMARKS          = "bookmarks"
+private const val ROUTE_BOOKMARK_FOLDER    = "bookmarks/{folderId}"
 private const val ROUTE_NOTE_EDITOR        = "note_editor?id={id}&folder={folder}"
 private const val ROUTE_CHECKLIST_EDITOR   = "checklist_editor?id={id}&folder={folder}"
 private const val ROUTE_FOLDER             = "folder/{id}?name={name}"
@@ -108,7 +111,7 @@ private const val ROUTE_GEOHASH          = "geohash"
 private const val ROUTE_GEOHASH_CHAT     = "geohash_chat?code={code}"
 private const val ROUTE_CALENDAR         = "calendar"
 private const val ROUTE_CALENDAR_EVENT   = "calendar_event?dateMillis={dateMillis}&id={id}"
-private const val ROUTE_SEARCH            = "search"
+private const val ROUTE_SEARCH            = "search?query={query}&autoOpen={autoOpen}"
 private const val ROUTE_HASHTAG           = "hashtag/{tag}"
 private const val ROUTE_PIN_SETUP         = "pin_setup?duress={duress}"
 
@@ -182,7 +185,7 @@ fun BonyNavHost() {
                             onProfileClick = { pubkey -> navController.navigate("profile/$pubkey") },
                             onHashtagClick = { tag -> navController.navigate("hashtag/" + Uri.encode(tag)) },
                             onRelayManagementClick = { navController.navigate(ROUTE_RELAY_MANAGEMENT) },
-                            onSearchClick = { navController.navigate(ROUTE_SEARCH) },
+                            onSearchClick = { navController.navigate("search?query=&autoOpen=false") },
                             onNotificationsClick = { navController.switchToTab(BottomTab.NOTIF) },
                             onToolboxClick = { navController.switchToTab(BottomTab.TOOLS) },
                             onOpenGeohash = { code ->
@@ -198,11 +201,41 @@ fun BonyNavHost() {
                         ToolboxScreen(
                             onBack = { navController.switchToTab(BottomTab.HOME) },
                             onNotes = { navController.navigate(ROUTE_NOTES) },
+                            onBookmarks = { navController.navigate(ROUTE_BOOKMARKS) },
                             onVoiceRecorder = { navController.navigate(ROUTE_VOICE) },
                             onGeohashChannels = { navController.navigate(ROUTE_GEOHASH) },
                             onCalendar = { navController.navigate(ROUTE_CALENDAR) },
                             onWallet = { navController.navigate(ROUTE_WALLET) },
                             onToolboxSettings = { navController.navigate(ROUTE_TOOLBOX_SETTINGS) },
+                        )
+                    }
+                }
+                composable(ROUTE_BOOKMARKS) {
+                    WithBottomBar(current = BottomTab.TOOLS, navController = navController) {
+                        BookmarksScreen(
+                            onBack = { navController.popBackStack() },
+                            onOpenFolder = { id -> navController.navigate("bookmarks/${Uri.encode(id)}") },
+                            onOpenEventSearch = { nevent ->
+                                navController.navigate("search?query=${Uri.encode("nostr:$nevent")}&autoOpen=true")
+                            },
+                            onQuoteFolder = { id -> navController.navigate("compose?quoteFolderId=${Uri.encode(id)}") },
+                        )
+                    }
+                }
+                composable(
+                    ROUTE_BOOKMARK_FOLDER,
+                    arguments = listOf(navArgument("folderId") { type = NavType.StringType }),
+                ) { entry ->
+                    val folderId = entry.arguments?.getString("folderId") ?: ""
+                    WithBottomBar(current = BottomTab.TOOLS, navController = navController) {
+                        BookmarksScreen(
+                            folderId = folderId,
+                            onBack = { navController.popBackStack() },
+                            onOpenFolder = { id -> navController.navigate("bookmarks/${Uri.encode(id)}") },
+                            onOpenEventSearch = { nevent ->
+                                navController.navigate("search?query=${Uri.encode("nostr:$nevent")}&autoOpen=true")
+                            },
+                            onQuoteFolder = { id -> navController.navigate("compose?quoteFolderId=${Uri.encode(id)}") },
                         )
                     }
                 }
@@ -401,6 +434,7 @@ fun BonyNavHost() {
                         arguments = listOf(
                             navArgument("replyToId") { type = NavType.StringType; defaultValue = "" },
                             navArgument("quoteToId") { type = NavType.StringType; defaultValue = "" },
+                            navArgument("quoteFolderId") { type = NavType.StringType; defaultValue = "" },
                             navArgument("draft") { type = NavType.StringType; defaultValue = "" },
                             navArgument("audioPath") { type = NavType.StringType; defaultValue = "" },
                         ),
@@ -488,11 +522,20 @@ fun BonyNavHost() {
                     composable(ROUTE_VERIFY_IDENTITY) {
                         VerifyIdentityScreen(onBack = { navController.popBackStack() })
                     }
-                    composable(ROUTE_SEARCH) {
+                    composable(
+                        ROUTE_SEARCH,
+                        arguments = listOf(
+                            navArgument("query") { type = NavType.StringType; defaultValue = "" },
+                            navArgument("autoOpen") { type = NavType.BoolType; defaultValue = false },
+                        ),
+                    ) { entry ->
                         SearchScreen(
                             onBack = { navController.popBackStack() },
                             onProfileClick = { pubkey -> navController.navigate("profile/$pubkey") },
                             onHashtagClick = { tag -> navController.navigate("hashtag/$tag") },
+                            initialQuery = entry.arguments?.getString("query") ?: "",
+                            autoOpenEvent = entry.arguments?.getBoolean("autoOpen") ?: false,
+                            onOpenEventInFeed = { navController.popBackStack(ROUTE_FEED, inclusive = false) },
                         )
                     }
                     composable(ROUTE_HASHTAG) {

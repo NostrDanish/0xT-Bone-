@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import social.tbone.account.AccountRepository
 import social.tbone.account.signer.NostrSignerFactory
 import social.tbone.lists.MuteListRepository
@@ -12,6 +15,9 @@ import social.tbone.lists.MuteOutcome
 import social.tbone.nostr.Event
 import social.tbone.nostr.Nip56Report
 import social.tbone.nostr.Nip56ReportReason
+import social.tbone.notes.BookmarkFolderUi
+import social.tbone.notes.BookmarkSaveResult
+import social.tbone.notes.BookmarksRepository
 import social.tbone.nostr.relay.RelayPool
 import social.tbone.nostr.relay.RelayStatus
 import social.tbone.settings.AppSettings
@@ -24,8 +30,27 @@ class NoteActionsViewModel @Inject constructor(
     private val muteListRepository: MuteListRepository,
     private val signerFactory: NostrSignerFactory,
     private val relayPool: RelayPool,
+    private val bookmarksRepository: BookmarksRepository,
 ) : ViewModel() {
     val moderationActionsEnabled = appSettings.noteMenuModerationEnabled
+    val bookmarkFolders: StateFlow<List<BookmarkFolderUi>> = bookmarksRepository.folders
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun saveBookmark(event: Event, folderId: String, onFinished: (String) -> Unit) {
+        viewModelScope.launch {
+            val message = runCatching { bookmarksRepository.addBookmark(event, folderId) }
+                .fold(
+                    onSuccess = { result ->
+                        when (result) {
+                            BookmarkSaveResult.SAVED -> "Saved to bookmarks"
+                            BookmarkSaveResult.ALREADY_SAVED -> "Already saved in that folder"
+                        }
+                    },
+                    onFailure = { it.message ?: "Could not save bookmark" },
+                )
+            onFinished(message)
+        }
+    }
 
     fun blockAuthor(pubkey: String, onFinished: (String) -> Unit) {
         viewModelScope.launch {

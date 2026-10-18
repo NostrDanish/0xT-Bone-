@@ -81,6 +81,7 @@ fun FeedScreen(
     viewModel: FeedViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val pendingEventScroll by viewModel.pendingEventScroll.collectAsStateWithLifecycle()
     val currentFeed by viewModel.currentFeed.collectAsStateWithLifecycle()
     val activeAccount by viewModel.activeAccount.collectAsStateWithLifecycle()
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
@@ -102,6 +103,14 @@ fun FeedScreen(
 
     LaunchedEffect(Unit) {
         viewModel.scrollToTop.collect { listState.scrollToItem(0) }
+    }
+    LaunchedEffect(pendingEventScroll, uiState.events) {
+        val eventId = pendingEventScroll ?: return@LaunchedEffect
+        val index = uiState.events.indexOfFirst { it.id == eventId }
+        if (index >= 0) {
+            listState.animateScrollToItem(index + 1) // index 0 is the geohash strip
+            viewModel.consumePendingEventScroll(eventId)
+        }
     }
 
     LaunchedEffect(uiState.isLoading) {
@@ -163,6 +172,14 @@ fun FeedScreen(
                 Text(
                     text = "${uiState.events.size} events",
                     style = BonyType.meta.copy(color = BonyColors.TextMute),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = if (uiState.globalNewerLoading) "loading…" else "load all newer",
+                    style = BonyType.meta.copy(color = if (uiState.globalNewerLoading) BonyColors.TextMute else BonyColors.Accent),
+                    modifier = Modifier.clickable(enabled = !uiState.globalNewerLoading) {
+                        viewModel.loadNewerGlobal()
+                    },
                 )
             }
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
@@ -235,15 +252,46 @@ fun FeedScreen(
                                 quotedEventId = refId,
                             )
                         }
-                        item {
-                            Text(
-                                text = "─── pull to load older ───",
-                                style = BonyType.caption.copy(color = BonyColors.TextMute),
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 16.dp),
-                            )
+                        item(key = "feed_paging") {
+                            if (currentFeed == FeedTab.GLOBAL) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(
+                                            enabled = uiState.globalCanLoadOlder && !uiState.globalOlderLoading,
+                                            onClick = viewModel::loadOlderGlobal,
+                                        )
+                                        .padding(vertical = 18.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    if (uiState.globalOlderLoading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(14.dp),
+                                            color = BonyColors.Accent,
+                                            strokeWidth = 1.5.dp,
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                    }
+                                    Text(
+                                        text = when {
+                                            uiState.globalOlderLoading -> "loading 100 older notes…"
+                                            uiState.globalCanLoadOlder -> "load 100 older notes"
+                                            else -> "no more older notes available"
+                                        },
+                                        style = BonyType.caption.copy(
+                                            color = if (uiState.globalCanLoadOlder) BonyColors.Accent else BonyColors.TextMute,
+                                        ),
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = "─── pull to load older ───",
+                                    style = BonyType.caption.copy(color = BonyColors.TextMute),
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                                )
+                            }
                         }
                     }
                 }

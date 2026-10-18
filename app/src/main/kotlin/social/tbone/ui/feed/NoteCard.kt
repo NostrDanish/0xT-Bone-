@@ -201,7 +201,7 @@ fun NoteCard(
                     modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    NoteActionsMenu(event = event, authorName = profile?.bestName)
+                    NoteActionsMenu(event = event, authorName = profile?.bestName, authorPictureUrl = profile?.picture)
                 }
             }
         }
@@ -795,7 +795,7 @@ private fun NoteEngagementRow(
                 }
             }
         }
-        NoteActionsMenu(event = event, authorName = profile?.bestName)
+        NoteActionsMenu(event = event, authorName = profile?.bestName, authorPictureUrl = profile?.picture)
     }
 }
 

@@ -12,13 +12,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withTimeoutOrNull
 import social.tbone.nostr.EventKind
 import social.tbone.nostr.Filter
 import social.tbone.nostr.Nip19
+import social.tbone.nostr.Event
 import social.tbone.nostr.ProfileContent
 import social.tbone.nostr.relay.RelayMessage
+import social.tbone.db.EventRepository
+import social.tbone.notes.BookmarksRepository
+import social.tbone.ui.feed.EventOpenCoordinator
 import social.tbone.nostr.relay.RelayPool
 import social.tbone.profile.ProfileRepository
 import social.tbone.Tunables
@@ -28,6 +34,12 @@ data class ProfileMatch(val pubkey: String, val profile: ProfileContent?)
 
 sealed interface SearchUiState {
     data object Idle : SearchUiState
+    data class EventInput(
+        val eventId: String,
+        val event: Event? = null,
+        val loading: Boolean = true,
+        val error: String? = null,
+    ) : SearchUiState
     data class NpubInput(val pubkey: String, val profile: ProfileContent?) : SearchUiState
     data class HashtagInput(val tag: String) : SearchUiState
     data object Searching : SearchUiState
@@ -39,6 +51,9 @@ sealed interface SearchUiState {
 class SearchViewModel @Inject constructor(
     private val pool: RelayPool,
     private val profileRepository: ProfileRepository,
+    private val eventRepository: EventRepository,
+    private val bookmarksRepository: BookmarksRepository,
+    private val eventOpenCoordinator: EventOpenCoordinator,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -48,6 +63,7 @@ class SearchViewModel @Inject constructor(
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
     private var searchRelayAdded = false
+    private var eventLookupJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -58,16 +74,40 @@ class SearchViewModel @Inject constructor(
     fun onQueryChange(q: String) = _query.update { q }
 
     private suspend fun processQuery(q: String) {
-        // Accept a bare npub1…/nprofile1… or a full "nostr:npub1…" URI pasted in.
-        val clean = q.removePrefix("nostr:").removePrefix("NOSTR:").trim()
-        when {
-            q.isEmpty() -> _uiState.update { SearchUiState.Idle }
+        eventLookupJob?.cancel()
+        eventLookupJob = null
+        if (q.isEmpty()) {
+            _uiState.update { SearchUiState.Idle }
+            return
+        }
 
-            (clean.startsWith("npub1") || clean.startsWith("nprofile1")) && clean.length > 20 -> {
-                val hex = if (clean.startsWith("npub1")) {
-                    Nip19.npubToHex(clean)
+        // Accept bare note/nevent references, nostr: URIs, and raw 32-byte hex IDs.
+        val clean = q.trim().removePrefix("nostr:").removePrefix("NOSTR:").trim()
+        val normalized = clean.lowercase()
+        val looksLikeEvent = normalized.startsWith("note1") || normalized.startsWith("nevent1") ||
+            normalized.matches(Regex("[0-9a-f]{64}"))
+        if (looksLikeEvent) {
+            val eventId = when {
+                normalized.matches(Regex("[0-9a-f]{64}")) -> normalized
+                normalized.startsWith("nevent1") -> Nip19.neventToHex(normalized)
+                else -> Nip19.noteToHex(normalized)
+            }
+            if (eventId == null) {
+                _uiState.update {
+                    SearchUiState.EventInput(clean, event = null, loading = false, error = "That note/nevent reference is invalid.")
+                }
+            } else {
+                resolveEvent(eventId)
+            }
+            return
+        }
+
+        when {
+            (normalized.startsWith("npub1") || normalized.startsWith("nprofile1")) && normalized.length > 20 -> {
+                val hex = if (normalized.startsWith("npub1")) {
+                    Nip19.npubToHex(normalized)
                 } else {
-                    Nip19.nprofileToHex(clean)
+                    Nip19.nprofileToHex(normalized)
                 }
                 if (hex != null) {
                     _uiState.update { SearchUiState.NpubInput(hex, profileRepository.getProfile(hex)) }
@@ -89,6 +129,49 @@ class SearchViewModel @Inject constructor(
             else -> _uiState.update { SearchUiState.Idle }
         }
     }
+
+    private fun resolveEvent(eventId: String) {
+        _uiState.update { SearchUiState.EventInput(eventId = eventId, loading = true) }
+        eventLookupJob = viewModelScope.launch {
+            val local = runCatching { eventRepository.getById(eventId) }.getOrNull()
+                ?: runCatching { bookmarksRepository.findEvent(eventId) }.getOrNull()
+            if (local != null && local.verify()) {
+                _uiState.update { SearchUiState.EventInput(eventId, event = local, loading = false) }
+                return@launch
+            }
+
+            if (!searchRelayAdded) {
+                pool.acquireRelay(Tunables.SEARCH_RELAY)
+                searchRelayAdded = true
+            }
+            val subId = pool.subscribe(listOf(Filter(ids = listOf(eventId), limit = 1)), label = "search-event")
+            try {
+                val terminal = withTimeoutOrNull(Tunables.SEARCH_EOSE_TIMEOUT_MS) {
+                    pool.messages.first { (_, message) ->
+                        when (message) {
+                            is RelayMessage.EventMessage -> message.subscriptionId == subId &&
+                                message.event.id.equals(eventId, ignoreCase = true) && message.event.verify()
+                            is RelayMessage.EndOfStoredEvents -> message.subscriptionId == subId
+                            else -> false
+                        }
+                    }
+                }
+                val message = terminal?.message
+                when (message) {
+                    is RelayMessage.EventMessage ->
+                        _uiState.update { SearchUiState.EventInput(eventId, event = message.event, loading = false) }
+                    is RelayMessage.EndOfStoredEvents ->
+                        _uiState.update { SearchUiState.EventInput(eventId, loading = false, error = "No matching event was returned by the search relay.") }
+                    else ->
+                        _uiState.update { SearchUiState.EventInput(eventId, loading = false, error = "Timed out while searching for this event.") }
+                }
+            } finally {
+                pool.unsubscribe(subId)
+            }
+        }
+    }
+
+    fun openInMainFeed(event: Event) = eventOpenCoordinator.openInMainFeed(event)
 
     /**
      * Subscribes for a single kind-0 metadata event from the given pubkey on the
@@ -192,6 +275,7 @@ class SearchViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        eventLookupJob?.cancel()
         if (searchRelayAdded) {
             pool.releaseRelay(Tunables.SEARCH_RELAY)
             searchRelayAdded = false

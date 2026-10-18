@@ -1,5 +1,7 @@
 package social.tbone.nostr
 
+import social.tbone.Tunables
+
 /**
  * NIP-88 — Polls.
  *
@@ -61,6 +63,7 @@ object Nip88 {
             .filter { it.name == "option" && it.values.size >= 3 }
             .map { PollOption(it.value(1) ?: "", it.value(2) ?: "") }
             .filter { it.id.isNotEmpty() }
+            .take(Tunables.MAX_POLL_OPTIONS)
 
     fun parsePollType(event: Event): PollType {
         val value = event.parsedTags

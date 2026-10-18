@@ -29,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Flag
@@ -86,11 +87,14 @@ private val PrettyEventJson: Json = Json {
     prettyPrintIndent = "  "
 }
 
+private data class ShareCardFile(val file: java.io.File, val mimeType: String, val label: String)
+
 /** Compact, anchored note/reply action menu, following Amethyst's 3-dot action pattern. */
 @Composable
 fun NoteActionsMenu(
     event: Event,
     authorName: String? = null,
+    authorPictureUrl: String? = null,
     modifier: Modifier = Modifier,
     viewModel: NoteActionsViewModel = hiltViewModel(),
 ) {
@@ -98,7 +102,9 @@ fun NoteActionsMenu(
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val moderationActionsEnabled by viewModel.moderationActionsEnabled.collectAsStateWithLifecycle()
+    val bookmarkFolders by viewModel.bookmarkFolders.collectAsStateWithLifecycle()
     var expanded by remember(event.id) { mutableStateOf(false) }
+    var bookmarkFoldersExpanded by remember(event.id) { mutableStateOf(false) }
     var rawJson by remember(event.id) { mutableStateOf<String?>(null) }
     var showRawJson by remember(event.id) { mutableStateOf(false) }
     var showReportDialog by remember(event.id) { mutableStateOf(false) }
@@ -156,6 +162,10 @@ fun NoteActionsMenu(
                     expanded = false
                     copyText(context, clipboard, event.content, "Note text")
                 }
+                NoteActionMenuItem(Icons.Outlined.BookmarkBorder, "Bookmark in…") {
+                    expanded = false
+                    bookmarkFoldersExpanded = true
+                }
                 NoteActionMenuItem(Icons.Outlined.Share, "Share Nostr event (nevent)") {
                     expanded = false
                     val send = Intent(Intent.ACTION_SEND).apply {
@@ -171,24 +181,40 @@ fun NoteActionsMenu(
                         scope.launch {
                             val result = runCatching {
                                 withContext(Dispatchers.IO) {
-                                    NoteShareCardGenerator.render(context, event, authorName)
+                                    val video = NoteShareCardGenerator.firstVideo(event)
+                                    val card = NoteShareCardGenerator.renderCard(
+                                        context = context,
+                                        event = event,
+                                        authorName = authorName,
+                                        authorPictureUrl = authorPictureUrl,
+                                        animatedVideoUrl = video?.url,
+                                    )
+                                    if (video != null && card.videoSlot != null) {
+                                        ShareCardFile(
+                                            ShareCardVideoGenerator.render(context, card, video),
+                                            "video/mp4",
+                                            "Share playable video card",
+                                        )
+                                    } else {
+                                        ShareCardFile(card.file, "image/png", "Share note card")
+                                    }
                                 }
                             }
-                            result.onSuccess { file ->
+                            result.onSuccess { output ->
                                 runCatching {
                                     val uri = FileProvider.getUriForFile(
                                         context,
                                         "${context.packageName}.fileprovider",
-                                        file,
+                                        output.file,
                                     )
                                     val send = Intent(Intent.ACTION_SEND).apply {
-                                        type = "image/png"
+                                        type = output.mimeType
                                         putExtra(Intent.EXTRA_STREAM, uri)
                                         clipData = ClipData.newUri(context.contentResolver, "T-Bone note card", uri)
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
                                     context.startSafely(
-                                        Intent.createChooser(send, "Share note card").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                                        Intent.createChooser(send, output.label).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
                                     )
                                 }.onFailure {
                                     Toast.makeText(context, "Could not share note card", Toast.LENGTH_SHORT).show()
@@ -219,6 +245,35 @@ fun NoteActionsMenu(
                 NoteActionMenuItem(Icons.Outlined.OpenInNew, "Open in another client") {
                     expanded = false
                     openInAnotherNostrClient(context, nevent)
+                }
+            }
+            DropdownMenu(
+                expanded = bookmarkFoldersExpanded,
+                onDismissRequest = { bookmarkFoldersExpanded = false },
+                properties = PopupProperties(focusable = true),
+            ) {
+                Text(
+                    text = "save to folder",
+                    style = BonyType.caption.copy(color = BonyColors.TextMute),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                bookmarkFolders.forEach { folder ->
+                    DropdownMenuItem(
+                        text = { Text(folder.name, style = BonyType.meta.copy(color = BonyColors.Text)) },
+                        onClick = {
+                            bookmarkFoldersExpanded = false
+                            viewModel.saveBookmark(event, folder.id) { message ->
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    )
+                }
+                if (bookmarkFolders.isEmpty()) {
+                    Text(
+                        text = "Loading folders…",
+                        style = BonyType.meta.copy(color = BonyColors.TextMute),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
                 }
             }
         }

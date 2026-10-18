@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Mic
@@ -63,6 +64,7 @@ private val TOOL_ROW_HEIGHT = 68.dp
 fun ToolboxScreen(
     onBack: () -> Unit,
     onNotes: () -> Unit,
+    onBookmarks: () -> Unit,
     onVoiceRecorder: () -> Unit,
     onGeohashChannels: () -> Unit,
     onCalendar: () -> Unit,
@@ -101,6 +103,8 @@ fun ToolboxScreen(
     val toolsById: Map<String, ToolEntry> = mapOf(
         "notes" to ToolEntry(Icons.Outlined.EditNote, "encrypted notes",
             "notes, checklists, folders & inline attachments", onNotes),
+        "bookmarks" to ToolEntry(Icons.Outlined.BookmarkBorder, "bookmarks",
+            "encrypted local bookmarks, folders & quotes", onBookmarks),
         "voice" to ToolEntry(Icons.Outlined.Mic, "voice recorder",
             "record, anonymize, save or share a voice note", onVoiceRecorder),
         "geohash" to ToolEntry(Icons.Outlined.Place, "geohash channels",
@@ -243,7 +247,7 @@ private data class ToolEntry(
     val onClick: () -> Unit,
 )
 
-private val ToolIds = setOf("notes", "voice", "geohash", "calendar", "wallet")
+private val ToolIds = setOf("notes", "bookmarks", "voice", "geohash", "calendar", "wallet")
 
 @Composable
 internal fun ToolRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {

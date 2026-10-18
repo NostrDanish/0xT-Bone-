@@ -16,9 +16,9 @@ import javax.inject.Singleton
 
 /**
  * Toolbox-only security: a PIN that locks the toolbox and a duress PIN that
- * wipes everything toolbox-related (encrypted notes, voice recordings, and
- * toolbox settings). Mirrors the app lock / duress features but scoped to the
- * Toolbox.
+ * wipes everything toolbox-related (encrypted notes and bookmarks, voice
+ * recordings, and toolbox settings). Mirrors the app lock / duress features
+ * but scoped to the Toolbox.
  */
 @Singleton
 class ToolboxSecurity @Inject constructor(
@@ -69,7 +69,7 @@ class ToolboxSecurity @Inject constructor(
 
     /**
      * Wipes everything toolbox-related:
-     *  - encrypted notes (notes, note_folders, note_attachments)
+     *  - encrypted notes and bookmarks (including their folders and attachments)
      *  - calendar events (a toolbox tool)
      *  - geohash channels, nickname and identity seed (DataStore + prefs)
      *  - voice recordings (filesDir/recordings)
@@ -84,7 +84,7 @@ class ToolboxSecurity @Inject constructor(
                 // Delete every table except `notifications`. Children first so
                 // any foreign-key ordering is respected.
                 val db = appDatabase.openHelper.writableDatabase
-                listOf("note_attachments", "note_folders", "calendar_events", "notes", "events", "profiles")
+                listOf("bookmarks", "bookmark_folders", "note_attachments", "note_folders", "calendar_events", "notes", "events", "profiles")
                     .forEach { table ->
                         runCatching { db.execSQL("DELETE FROM $table") }
                     }

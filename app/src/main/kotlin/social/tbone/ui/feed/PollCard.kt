@@ -5,6 +5,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
@@ -33,6 +36,7 @@ import social.tbone.ui.theme.appCornerShape
 
 /** Fixed bar height for poll results — stable, no measurement needed. */
 private val RESULT_BAR_HEIGHT = 8.dp
+private val POLL_OPTIONS_MAX_HEIGHT = 280.dp
 
 /**
  * NIP-88 poll card, mirroring Wisp's PollSection but compact and stable:
@@ -70,16 +74,20 @@ fun PollCard(
             .background(BonyColors.SurfaceAlt, pollShape),
     ) {
         if (showResults) {
-            options.forEachIndexed { index, option ->
-                if (index > 0) PollDivider()
-                val count = (voteCounts[option.id] ?: 0).coerceAtLeast(0)
-                val percentage = if (total > 0) count.toFloat() / total else 0f
-                PollResultRow(
-                    label = option.label,
-                    percentage = percentage,
-                    count = count,
-                    isUserChoice = option.id in userVotes,
-                )
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().heightIn(max = POLL_OPTIONS_MAX_HEIGHT),
+            ) {
+                itemsIndexed(options) { index, option ->
+                    if (index > 0) PollDivider()
+                    val count = (voteCounts[option.id] ?: 0).coerceAtLeast(0)
+                    val percentage = if (total > 0) count.toFloat() / total else 0f
+                    PollResultRow(
+                        label = option.label,
+                        percentage = percentage,
+                        count = count,
+                        isUserChoice = option.id in userVotes,
+                    )
+                }
             }
             Text(
                 text = "$total vote${if (total != 1) "s" else ""}" +
@@ -89,29 +97,37 @@ fun PollCard(
             )
         } else {
             if (pollType == Nip88.PollType.SINGLECHOICE) {
-                options.forEachIndexed { index, option ->
-                    if (index > 0) PollDivider()
-                    PollOptionRow(
-                        label = option.label,
-                        selected = false,
-                        isRadio = true,
-                        onClick = { onVote(listOf(option.id)) },
-                    )
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = POLL_OPTIONS_MAX_HEIGHT),
+                ) {
+                    itemsIndexed(options) { index, option ->
+                        if (index > 0) PollDivider()
+                        PollOptionRow(
+                            label = option.label,
+                            selected = false,
+                            isRadio = true,
+                            onClick = { onVote(listOf(option.id)) },
+                        )
+                    }
                 }
             } else {
                 // Multiple choice — local selection, submit via VOTE button.
                 var selected by remember(poll.id) { mutableStateOf<Set<String>>(emptySet()) }
-                options.forEachIndexed { index, option ->
-                    if (index > 0) PollDivider()
-                    PollOptionRow(
-                        label = option.label,
-                        selected = option.id in selected,
-                        isRadio = false,
-                        onClick = {
-                            selected = if (option.id in selected) selected - option.id
-                            else selected + option.id
-                        },
-                    )
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = POLL_OPTIONS_MAX_HEIGHT),
+                ) {
+                    itemsIndexed(options) { index, option ->
+                        if (index > 0) PollDivider()
+                        PollOptionRow(
+                            label = option.label,
+                            selected = option.id in selected,
+                            isRadio = false,
+                            onClick = {
+                                selected = if (option.id in selected) selected - option.id
+                                else selected + option.id
+                            },
+                        )
+                    }
                 }
                 if (selected.isNotEmpty()) {
                     PollDivider()

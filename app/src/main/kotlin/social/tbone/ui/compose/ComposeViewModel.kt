@@ -35,6 +35,7 @@ import social.tbone.nostr.relay.RelayMessage
 import social.tbone.nostr.relay.RelayPool
 import social.tbone.nostr.quotedEventId
 import social.tbone.nostr.replyToPubkeys
+import social.tbone.notes.BookmarksRepository
 import social.tbone.nostr.rootEventId
 import social.tbone.profile.ProfileRepository
 import social.tbone.settings.AppSettings
@@ -50,6 +51,8 @@ data class ComposeUiState(
     val error: String? = null,
     val replyToEvent: Event? = null,
     val quoteToEvent: Event? = null,
+    /** Ordered folder quotes; serialized payloads stay encrypted in the vault. */
+    val quoteFolderEvents: List<Event> = emptyList(),
     val initialText: String = "",
     // NIP-88 poll builder
     val pollEnabled: Boolean = false,
@@ -71,6 +74,7 @@ class ComposeViewModel @Inject constructor(
     private val signerFactory: NostrSignerFactory,
     private val eventRepository: EventRepository,
     private val profileRepository: ProfileRepository,
+    private val bookmarksRepository: BookmarksRepository,
     private val appSettings: AppSettings,
     private val blossomUploader: BlossomUploader,
     @ApplicationContext private val context: Context,
@@ -79,6 +83,7 @@ class ComposeViewModel @Inject constructor(
 
     private val replyToId: String? = savedStateHandle["replyToId"]
     private val quoteToId: String? = savedStateHandle["quoteToId"]
+    private val quoteFolderId: String? = savedStateHandle["quoteFolderId"]
     private val draft: String? = savedStateHandle["draft"]
     private val audioPath: String? = savedStateHandle["audioPath"]
 
@@ -135,8 +140,17 @@ class ComposeViewModel @Inject constructor(
             if (!quoteToId.isNullOrEmpty()) {
                 val event = eventRepository.getById(quoteToId)
                 if (event != null) {
-                    val ref = "nostr:${Nip19.hexToNote(event.id)}"
-                    _uiState.update { it.copy(quoteToEvent = event, initialText = ref) }
+                    val ref = "nostr:${Nip19.hexToNevent(event.id, event.pubkey, event.kind)}"
+                    _uiState.update { it.copy(quoteToEvent = event, initialText = "\n\n$ref") }
+                }
+            }
+            if (!quoteFolderId.isNullOrEmpty()) {
+                val events = bookmarksRepository.getBookmarks(quoteFolderId).map { it.event }
+                if (events.isNotEmpty()) {
+                    val refs = events.joinToString("\n") { "nostr:${Nip19.hexToNevent(it.id, it.pubkey, it.kind)}" }
+                    _uiState.update { it.copy(quoteFolderEvents = events, initialText = "\n\n$refs") }
+                } else {
+                    _uiState.update { it.copy(error = "This bookmark folder is empty") }
                 }
             }
         }
@@ -378,8 +392,10 @@ class ComposeViewModel @Inject constructor(
             val inheritedQuote = if (explicitQuote == null && inheritedQuoteId != null) {
                 eventRepository.getById(inheritedQuoteId)
             } else null
-            val quoteTo = explicitQuote ?: inheritedQuote
-            val quoteId = quoteTo?.id ?: inheritedQuoteId
+            val quoteEvents = (
+                _uiState.value.quoteFolderEvents + listOfNotNull(explicitQuote, inheritedQuote)
+            ).distinctBy { it.id }
+            val quoteIds = (quoteEvents.map { it.id } + listOfNotNull(inheritedQuoteId)).distinct()
 
             val tags = buildList {
                 if (replyTo != null) {
@@ -407,11 +423,12 @@ class ComposeViewModel @Inject constructor(
                         add(buildJsonArray { add(JsonPrimitive("p")); add(JsonPrimitive(pubkey)) })
                     }
                 }
-                if (quoteId != null) {
-                    // NIP-18 quote reference is intentionally separate from
-                    // NIP-10 reply e-tags: a quote-reply carries both.
+                // NIP-18 quote references remain separate from NIP-10 reply
+                // e-tags. Folder quotes emit one q-tag (and author p-tag) per
+                // saved event, preserving the folder's displayed order.
+                quoteIds.forEach { quoteId ->
                     add(buildJsonArray { add(JsonPrimitive("q")); add(JsonPrimitive(quoteId)) })
-                    quoteTo?.let { quoted ->
+                    quoteEvents.firstOrNull { it.id == quoteId }?.let { quoted ->
                         add(buildJsonArray { add(JsonPrimitive("p")); add(JsonPrimitive(quoted.pubkey)) })
                     }
                 }
@@ -431,13 +448,24 @@ class ComposeViewModel @Inject constructor(
                 }
             }
 
-            // For quote-reply, ensure the quoted reference is also visible in
-            // the content (the q tag alone is not enough for NIP-27 clients).
-            val noteRef = quoteId?.let { "\n\nnostr:${Nip19.hexToNote(it)}" }
-            val finalContent = if (noteRef != null && !trimmed.contains(noteRef.trim()))
-                "$trimmed$noteRef"
-            else
+            // Keep every quoted event visible to NIP-27 clients. Links are
+            // grouped below the writing line, in the same order as the folder.
+            val missingRefs = quoteIds
+                .map { id ->
+                    val quoted = quoteEvents.firstOrNull { it.id == id }
+                    val reference = if (quoted != null) {
+                        Nip19.hexToNevent(id, quoted.pubkey, quoted.kind)
+                    } else {
+                        Nip19.hexToNevent(id)
+                    }
+                    "nostr:$reference"
+                }
+                .filterNot { trimmed.contains(it) }
+            val finalContent = if (missingRefs.isNotEmpty()) {
+                "$trimmed\n\n${missingRefs.joinToString("\n")}"
+            } else {
                 trimmed
+            }
 
             val isPoll = _uiState.value.pollEnabled
             val pollKindTags = if (isPoll) {
