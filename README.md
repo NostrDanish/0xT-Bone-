@@ -4,6 +4,35 @@ A privacy-focused Nostr client for Android. No Google Play Services, analytics, 
 
 [Download the latest release](https://github.com/toddsmith456/T-Bone-/releases/latest) · [Changelog](CHANGELOG.md) · [Privacy policy](docs/PRIVACY.md)
 
+## T-Bone Web (desktop & browser)
+
+This repository now also ships **T-Bone Web** — a fully working browser/desktop client that brings the
+T-Bone experience to any device with a web browser (installable as a PWA, no Google services involved).
+
+```bash
+npm install
+npm run dev      # local dev server
+npm run build    # production build into dist/
+```
+
+What's implemented on the web side (all state stays in your browser, nothing is sent to any server
+other than the Nostr relays you configure):
+
+- **Login** via a NIP-07 browser extension (Alby, nos2x, …), an `nsec`, or a freshly generated device-local key
+- **Feeds**: following & global timelines, hashtag pages (`/tag/<tag>`), load-more pagination
+- **Composing**: new notes, replies (NIP-10 threads), quote-notes (NIP-18), reposts, hashtags, `nostr:` entity links (NIP-19/21/27)
+- **Interactions**: likes (NIP-25), reposts, reply counts, thread view with parent chain, deletion (NIP-09 best effort)
+- **Zaps (NIP-57)** with LNURL-pay resolution (lud16/lud06 incl. bech32) and automatic in-app payment via **NWC (NIP-47)**; without a wallet the invoice is handed to your system `lightning:` handler
+- **Notifications inbox** with filters: mentions/replies, reactions, reposts, zap receipts
+- **Profiles**: kind-0 metadata, banner, bio, NIP-05, follow/unfollow publishing kind-3
+- **Search**: NIP-50 relay search with local-cache fallback; npub/nprofile jump links
+- **Relay management** with live status probes, read/write flags, and NIP-65 relay-list publishing
+- **Private Toolbox**: notes & checklists with folders, encrypted with AES-256-GCM + PBKDF2 (210k) via WebCrypto — passphrase-only, local-only
+- **Youniversal theming**: dark / light / cream, 7 accent colors, adjustable corner radius, app-wide text scaling, system or Nunito Sans font
+- **Backup/export** of all local data as JSON
+
+The Android app lives under `app/` and is unchanged.
+
 ## Features
 
 - **Nostr social:** Following and global feeds; profile and hashtag search; relay management; profiles; replies, full threads, quote-notes, reposts, polls, emoji reactions, and sharing.
