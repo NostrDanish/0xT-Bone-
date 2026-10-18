@@ -11,6 +11,7 @@ import {
   sub,
   type Signer,
 } from "./nostr";
+import { Nip46Signer } from "./nip46";
 
 /* ------------------------------------------------------------------ */
 /* Persistence                                                         */
@@ -55,8 +56,13 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 interface AccountInfo {
   pubkey: string;
-  kind: "nip07" | "local";
+  kind: "nip07" | "local" | "nip46";
   skHex?: string;
+  nip46?: {
+    signerPubkey: string;
+    clientSecretHex: string;
+    relays: string[];
+  };
 }
 
 function load<T>(key: string, fallback: T): T {
@@ -91,7 +97,7 @@ interface AppContextValue {
   signer: Signer | null;
   loginNip07: () => Promise<void>;
   loginNsec: (nsecOrHex: string) => Promise<void>;
-  createAccount: () => void;
+  loginNip46: (userPubkey: string, signer: Nip46Signer) => void;  createAccount: () => void;
   logout: () => void;
   // relays
   relays: RelayInfo[];
@@ -172,6 +178,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         if (account.kind === "local" && account.skHex) {
           const s = makeLocalSigner(account.skHex).signer;
+          if (!cancelled) setSigner(s);
+        } else if (account.kind === "nip46" && account.nip46) {
+          // Reconnect the persisted remote-signing session (same client
+          // keypair → the signer still recognizes this client).
+          const s = new Nip46Signer(
+            account.nip46.relays,
+            account.nip46.clientSecretHex,
+            account.nip46.signerPubkey,
+          );
+          s.pubkey = account.pubkey;
           if (!cancelled) setSigner(s);
         } else {
           // NIP-07
@@ -302,11 +318,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setAccount(acc);
   }, []);
 
+  const loginNip46 = useCallback((userPubkey: string, remote: Nip46Signer) => {
+    const acc: AccountInfo = {
+      pubkey: userPubkey,
+      kind: "nip46",
+      nip46: {
+        signerPubkey: remote.signerPubkey,
+        clientSecretHex: remote.clientSecretHex,
+        relays: [...remote.relays],
+      },
+    };
+    localStorage.setItem(LS.account, JSON.stringify(acc));
+    setAccount(acc);
+  }, []);
+
   const logout = useCallback(() => {
+    if (signer instanceof Nip46Signer) {
+      // courtesy: tell the remote signer to end the session (NIP-46 logout)
+      signer.destroy(true).catch(() => {});
+    }
     localStorage.removeItem(LS.account);
     setAccount(null);
     setSigner(null);
-  }, []);
+  }, [signer]);
 
   /* --- relays -------------------------------------------------------- */
   const setRelays = useCallback((next: RelayInfo[]) => {

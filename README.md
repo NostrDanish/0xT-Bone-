@@ -18,7 +18,7 @@ npm run build    # production build into dist/
 What's implemented on the web side (all state stays in your browser, nothing is sent to any server
 other than the Nostr relays you configure):
 
-- **Login** via a NIP-07 browser extension (Alby, nos2x, …), an `nsec`, or a freshly generated device-local key
+- **Login** via a NIP-07 browser extension (Alby, nos2x, …), an `nsec`, a freshly generated device-local key, or **Amber / any NIP-46 remote signer** — scan the on-screen QR with Amber and every signing request is routed to your phone over relays (the browser never sees your key). `bunker://` tokens from Amber/nsec.app/nsecBunker are accepted too
 - **Feeds**: following & global timelines, hashtag pages (`/tag/<tag>`), load-more pagination
 - **Composing**: new notes, replies (NIP-10 threads), quote-notes (NIP-18), reposts, hashtags, `nostr:` entity links (NIP-19/21/27)
 - **Interactions**: likes (NIP-25), reposts, reply counts, thread view with parent chain, deletion (NIP-09 best effort)

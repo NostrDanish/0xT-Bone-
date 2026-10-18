@@ -23,7 +23,7 @@ export type RelayStatus = "connecting" | "open" | "closed" | "error";
 /* ------------------------------------------------------------------ */
 
 export interface Signer {
-  kind: "nip07" | "local";
+  kind: "nip07" | "local" | "nip46";
   pubkey: string;
   sign(ev: NostrEvent): Promise<NostrEvent>;
   nip04Encrypt?(pubkey: string, plaintext: string): Promise<string>;

@@ -158,7 +158,12 @@ export default function Settings() {
       <section className="card p-5 mb-4">
         <h2 className="font-semibold mb-4 flex items-center gap-2"><KeyRound size={17} className="accent-text" /> Account</h2>
         <div className="text-sm text-dim mb-3">
-          Logged in as <span className="font-mono text-fg">{signer?.pubkey.slice(0, 16)}…</span> ({signer?.kind === "nip07" ? "NIP-07 extension" : "local key"})
+          Logged in as <span className="font-mono text-fg">{signer?.pubkey.slice(0, 16)}…</span> (
+          {signer?.kind === "nip07"
+            ? "NIP-07 extension"
+            : signer?.kind === "nip46"
+              ? "Amber / remote signer (NIP-46)"
+              : "local key"})
         </div>
         <div className="text-xs text-dim mb-4 font-mono break-all">npub: {encodeNpub(signer?.pubkey ?? "")}</div>
 

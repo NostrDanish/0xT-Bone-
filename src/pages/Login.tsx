@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { Bone, KeyRound, Wallet, Sparkles, ShieldCheck } from "lucide-react";
+import { Bone, KeyRound, Wallet, Sparkles, ShieldCheck, Smartphone } from "lucide-react";
 import { useApp } from "../lib/store";
+import type { Nip46Signer } from "../lib/nip46";
+import AmberLogin from "../components/AmberLogin";
 
 export default function Login() {
-  const { loginNip07, loginNsec, createAccount } = useApp();
-  const [tab, setTab] = useState<"extension" | "key" | "new">("extension");
+  const { loginNip07, loginNsec, createAccount, loginNip46 } = useApp();
+  const [tab, setTab] = useState<"extension" | "amber" | "key" | "new">("extension");
   const [keyInput, setKeyInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -18,6 +20,10 @@ export default function Login() {
       setErr(e?.message ?? String(e));
     }
     setBusy(false);
+  }
+
+  function onAmberLogin(signer: Nip46Signer, pubkey: string) {
+    loginNip46(pubkey, signer);
   }
 
   return (
@@ -37,6 +43,7 @@ export default function Login() {
             {(
               [
                 ["extension", "Extension", Wallet],
+                ["amber", "Amber", Smartphone],
                 ["key", "Use nsec", KeyRound],
                 ["new", "New account", Sparkles],
               ] as const
@@ -53,6 +60,8 @@ export default function Login() {
               </button>
             ))}
           </div>
+
+          {tab === "amber" && <AmberLogin onLogin={onAmberLogin} />}
 
           {tab === "extension" && (
             <div className="space-y-3">
