@@ -24,3 +24,5 @@ fork-release.*
 release.keystore
 /dist/
 /app/release/
+/node_modules/
+src-bak/

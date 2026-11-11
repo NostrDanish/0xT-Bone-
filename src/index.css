@@ -1,0 +1,158 @@
+@import "tailwindcss";
+
+/*
+ * T-Bone "Youniversal" theming
+ * Themes: dark (default), light, cream — set via <html data-theme="...">
+ * Accent color and corner radius are user-configurable CSS variables.
+ */
+
+:root {
+  --accent: #e0b04a;
+  --accent-contrast: #14181d;
+  --radius: 1rem;
+  --bg: #0b0f14;
+  --bg-1: #11161d;
+  --bg-2: #1a2029;
+  --fg: #e7ecf1;
+  --fg-dim: #97a1ad;
+  --border: #232b35;
+
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+html[data-theme="light"] {
+  --bg: #f7f8fa;
+  --bg-1: #ffffff;
+  --bg-2: #eef1f4;
+  --fg: #171c22;
+  --fg-dim: #5c6670;
+  --border: #dfe4ea;
+  --accent-contrast: #ffffff;
+}
+
+html[data-theme="cream"] {
+  --bg: #f6efe3;
+  --bg-1: #fffaf0;
+  --bg-2: #eee3cf;
+  --fg: #3d3222;
+  --fg-dim: #8a7a5f;
+  --border: #ddd0b8;
+  --accent-contrast: #fffaf0;
+}
+
+html[data-font="nunito"] {
+  font-family: "Nunito Sans", "Segoe UI", system-ui, sans-serif;
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  overscroll-behavior-y: none;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Utility classes bound to the theme variables */
+@layer utilities {
+  .bg-app {
+    background: var(--bg);
+  }
+  .bg-surface {
+    background: var(--bg-1);
+  }
+  .bg-surface-2 {
+    background: var(--bg-2);
+  }
+  .text-fg {
+    color: var(--fg);
+  }
+  .text-dim {
+    color: var(--fg-dim);
+  }
+  .border-line {
+    border-color: var(--border);
+  }
+  .accent-text {
+    color: var(--accent);
+  }
+  .accent-bg {
+    background: var(--accent);
+  }
+  .card {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .btn {
+    border-radius: calc(var(--radius) * 0.6);
+    transition:
+      background 0.15s ease,
+      opacity 0.15s ease;
+  }
+  .btn:hover {
+    background: var(--bg-2);
+  }
+  .accent-btn {
+    background: var(--accent);
+    color: var(--accent-contrast);
+    border-radius: calc(var(--radius) * 0.6);
+    font-weight: 600;
+    transition: opacity 0.15s ease;
+  }
+  .accent-btn:hover {
+    opacity: 0.9;
+  }
+  .pill {
+    border-radius: 999px;
+  }
+  .rounded-card {
+    border-radius: var(--radius);
+  }
+}
+
+input,
+textarea,
+select {
+  outline: none;
+}
+input:focus,
+textarea:focus {
+  border-color: var(--accent) !important;
+}
+
+a {
+  color: var(--accent);
+}
+
+img {
+  max-width: 100%;
+}
+
+.fade-in {
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
