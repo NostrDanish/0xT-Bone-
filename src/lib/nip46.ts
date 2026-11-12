@@ -189,9 +189,24 @@ export async function connectBunkerUri(
       : generateSecretKey();
   const clientSecretHex = bytesToHex(sk);
 
-  const signer = new Nip46Signer(relays, clientSecretHex, signerPubkey);
-  await signer.handshake(secret, opts);
-  return signer;
+  const safeRelays = [...new Set(relays.map((relay) => {
+    let parsed: URL;
+    try { parsed = new URL(relay); } catch { throw new Error("Invalid relay URL in bunker URI"); }
+    if (parsed.protocol !== "wss:" || !parsed.hostname) {
+      throw new Error("Bunker relays must use secure wss:// URLs");
+    }
+    return parsed.toString();
+  }))];
+  if (safeRelays.length === 0) throw new Error("bunker:// URI has no usable relays");
+
+  const signer = new Nip46Signer(safeRelays, clientSecretHex, signerPubkey);
+  try {
+    await signer.handshake(secret, opts);
+    return signer;
+  } catch (error) {
+    await signer.destroy();
+    throw error;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -342,6 +357,13 @@ export class Nip46Signer implements Signer {
     } catch {
       throw new Error("Malformed sign_event response");
     }
+    // Match the Android signer's defensive validation: a remote signer
+    // may add a client tag, but it must not substitute the account or draft.
+    if (signed.pubkey !== this.pubkey) throw new Error("Signer substituted the account pubkey");
+    if (signed.kind !== ev.kind) throw new Error("Signer substituted the event kind");
+    if (signed.content !== ev.content) throw new Error("Signer substituted the event content");
+    if (signed.created_at !== ev.created_at) throw new Error("Signer substituted the event timestamp");
+    if (JSON.stringify(signed.tags) !== JSON.stringify(ev.tags)) throw new Error("Signer substituted the event tags");
     if (!verifyEvent(signed)) throw new Error("Event returned from signer is improperly signed");
     return signed;
   }
@@ -364,10 +386,19 @@ export class Nip46Signer implements Signer {
     try {
       const result = await this.rpc("switch_relays", [], 20_000);
       const list = JSON.parse(result);
-      if (Array.isArray(list) && list.length && list.every((x) => typeof x === "string")) {
-        this.relays = list;
+      if (
+        Array.isArray(list) &&
+        list.length > 0 &&
+        list.length <= 20 &&
+        list.every((x) => {
+          if (typeof x !== "string") return false;
+          try { return new URL(x).protocol === "wss:"; } catch { return false; }
+        })
+      ) {
+        const safeList = [...new Set(list as string[])];
+        this.relays = safeList;
         this.startSubscription();
-        return list;
+        return safeList;
       }
     } catch { /* optional */ }
     return null;
