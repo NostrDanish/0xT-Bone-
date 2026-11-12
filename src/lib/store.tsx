@@ -135,6 +135,7 @@ export function useApp(): AppContextValue {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [account, setAccount] = useState<AccountInfo | null>(() => load<AccountInfo | null>(LS.account, null));
   const [signer, setSigner] = useState<Signer | null>(null);
+  const activeNip46Ref = React.useRef<Nip46Signer | null>(null);
   const [relays, setRelaysState] = useState<RelayInfo[]>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(LS.relays) ?? "null");
@@ -176,25 +177,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!account) {
       setSigner(null);
+      const active = activeNip46Ref.current;
+      activeNip46Ref.current = null;
+      if (active) void active.destroy();
       return;
     }
     let cancelled = false;
     (async () => {
       try {
         if (account.kind === "local" && account.skHex) {
+          const active = activeNip46Ref.current;
+          activeNip46Ref.current = null;
+          if (active) void active.destroy();
           const s = makeLocalSigner(account.skHex).signer;
           if (!cancelled) setSigner(s);
         } else if (account.kind === "nip46" && account.nip46) {
-          // Reconnect the persisted remote-signing session (same client
-          // keypair → the signer still recognizes this client).
-          const s = new Nip46Signer(
-            account.nip46.relays,
-            account.nip46.clientSecretHex,
-            account.nip46.signerPubkey,
-          );
+          // Reuse the just-authenticated signer when logging in; on page
+          // reload, recreate it from the persisted NIP-46 client keypair.
+          const saved = account.nip46;
+          let s = activeNip46Ref.current;
+          if (!s || s.clientSecretHex !== saved.clientSecretHex || s.signerPubkey !== saved.signerPubkey) {
+            if (s) void s.destroy();
+            s = new Nip46Signer(saved.relays, saved.clientSecretHex, saved.signerPubkey);
+            activeNip46Ref.current = s;
+          }
           s.pubkey = account.pubkey;
           if (!cancelled) setSigner(s);
         } else {
+          const active = activeNip46Ref.current;
+          activeNip46Ref.current = null;
+          if (active) void active.destroy();
           // NIP-07
           const api = (window as any).nostr;
           if (!api) throw new Error("No NIP-07 extension found");
@@ -334,6 +346,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
     };
     localStorage.setItem(LS.account, JSON.stringify(acc));
+    activeNip46Ref.current = remote;
+    setSigner(remote);
     setAccount(acc);
   }, []);
 
@@ -341,6 +355,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (signer instanceof Nip46Signer) {
       // courtesy: tell the remote signer to end the session (NIP-46 logout)
       signer.destroy(true).catch(() => {});
+      if (activeNip46Ref.current === signer) activeNip46Ref.current = null;
     }
     localStorage.removeItem(LS.account);
     setAccount(null);
