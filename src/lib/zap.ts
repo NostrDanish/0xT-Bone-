@@ -2,7 +2,7 @@
  * NIP-57 zaps — build the zap request, fetch an invoice from the
  * recipient's LNURL-pay endpoint, and optionally pay via NWC (NIP-47).
  */
-import type { Event as NostrEvent } from "nostr-tools";
+import type { Event as NostrEvent, EventTemplate } from "nostr-tools";
 import type { Signer } from "./nostr";
 import { nwcPayInvoice, parseNwcUri, type NwcInfo } from "./nwc";
 import { store, type Profile } from "./nostr";
@@ -100,9 +100,8 @@ export async function sendZap(
   const zapTags: string[][] = [["relays", ...relays], ["p", targetPubkey]];
   if (targetEventId) zapTags.push(["e", targetEventId]);
 
-  const zapRequest: NostrEvent = {
+  const zapRequest: EventTemplate = {
     kind: 9734,
-    pubkey: signer.pubkey,
     created_at: Math.floor(Date.now() / 1000),
     tags: zapTags,
     content: comment,
