@@ -1,6 +1,6 @@
 # T-Bone Web
 
-A standalone browser-first Nostr client based on [T-Bone](https://github.com/toddsmith456/T-Bone-). This fork's product target is the web app: React + TypeScript + Vite, installable as a PWA, with no Android runtime or Gradle dependency in the web build.
+A standalone browser-first Nostr client based on [T-Bone](https://github.com/toddsmith456/T-Bone-). This fork's product target is the web app: React + TypeScript + Vite, browser app with PWA metadata, with no Android runtime or Gradle dependency in the web build.
 
 **Privacy first:** no analytics, tracking SDKs, or application backend are required. The browser communicates with the Nostr relays configured by the user. For remote signing, the user's private key remains with their signer.
 
@@ -21,7 +21,7 @@ npm run build
 npm run preview
 ```
 
-The production output is `dist/`. Deploy it to any static host that supports SPA fallback/rewrite to `index.html` (the repository includes Vercel and Cloudflare Pages fallback configuration).
+The production output is `dist/`. Deploy it to any static host that supports SPA fallback/rewrite to `index.html` (the repository includes Vercel and Cloudflare Pages fallback configuration). The manifest is included; offline caching/service-worker support is not yet implemented.
 
 ## Authentication
 
