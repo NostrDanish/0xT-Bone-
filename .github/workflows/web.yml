@@ -1,4 +1,4 @@
-name: Web client
+name: Web client validation
 
 on:
   push:
