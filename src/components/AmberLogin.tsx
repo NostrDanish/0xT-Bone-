@@ -30,20 +30,31 @@ export default function AmberLogin({ onLogin }: Props) {
   const cancelScanRef = useRef<(() => void) | null>(null);
 
   const finish = useCallback(
-    (signer: Nip46Signer) => {
+    async (signer: Nip46Signer) => {
       signerRef.current = signer;
-      signer
-        .fetchPubkey()
-        .then((pk) => {
-          setConnected(true);
-          setStatus(null);
-          // give the UI a beat to show success, then hand over
-          setTimeout(() => onLogin(signer, pk), 600);
-        })
-        .catch((e) => {
-          setError(e?.message ?? "Could not fetch pubkey from signer");
-          setBusy(false);
-        });
+      try {
+        // NIP-46 requires get_public_key after connect. The bunker handshake
+        // already performs it; the QR flow still needs to request it here.
+        const pk = signer.pubkey || (await signer.fetchPubkey());
+
+        // The remote signer controls the connection relays. Switch before
+        // handing the signer to the rest of the app.
+        await signer.applySignerRelays();
+
+        setConnected(true);
+        setStatus(null);
+
+        // Transfer ownership to AppProvider before this component unmounts.
+        // Its effect cleanup must not destroy the newly authenticated signer.
+        signerRef.current = null;
+        onLogin(signer, pk);
+      } catch (e: any) {
+        await signer.destroy();
+        if (signerRef.current === signer) signerRef.current = null;
+        setError(e?.message ?? "Could not complete remote-signer login");
+        setStatus(null);
+        setBusy(false);
+      }
     },
     [onLogin],
   );
@@ -94,7 +105,7 @@ export default function AmberLogin({ onLogin }: Props) {
     setStatus("Connecting to bunker…");
     try {
       const signer = await connectBunkerUri(bunkerInput, { onAuth: (url) => setAuthUrl(url) });
-      finish(signer);
+      await finish(signer);
     } catch (e: any) {
       setError(e?.message ?? "Connection failed");
       setStatus(null);
