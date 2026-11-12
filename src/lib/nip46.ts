@@ -16,8 +16,7 @@
  *
  * Transport: request + response events are kind 24133 (current spec),
  * content NIP-44 v2 encrypted (NIP-04 fallback when decrypting).
- * For maximum compatibility with older Amber versions, requests are also
- * published as kind 23194 (legacy request kind).
+ * NIP-46 request and response events use kind 24133.
  */
 import type { Event as NostrEvent, EventTemplate } from "nostr-tools";
 import { finalizeEvent, generateSecretKey, getPublicKey, nip04, nip44 } from "nostr-tools";
@@ -26,7 +25,6 @@ import { bytesToHex, hexToBytes, pool } from "./nostr";
 import type { Signer } from "./nostr";
 
 const REQUEST_KIND = 24133;
-const LEGACY_REQUEST_KIND = 23194;
 const RESPONSE_KIND = 24133;
 
 /** Relays used for the remote-signing session. */
@@ -124,7 +122,7 @@ export function awaitAmberScan(
 
     sub = pool.subscribeMany(
       relays,
-      { kinds: [RESPONSE_KIND, LEGACY_REQUEST_KIND], "#p": [clientPubkey], since },
+      { kinds: [RESPONSE_KIND], "#p": [clientPubkey], since },
       {
         onevent: (ev: NostrEvent) => {
           if (done || !verifyEvent(ev)) return;
@@ -182,12 +180,9 @@ export async function connectBunkerUri(
   if (relays.length === 0) throw new Error("bunker:// URI has no relays");
   const secret = params.get("secret") ?? "";
 
-  // nsecBunker convention: secret is the client's secret key (64 hex)
-  const sk =
-    secret && secret.length === 64 && /^[0-9a-fA-F]+$/.test(secret)
-      ? hexToBytes(secret)
-      : generateSecretKey();
-  const clientSecretHex = bytesToHex(sk);
+  // The bunker URI secret is a one-time pairing secret, not a client
+  // private key. NIP-46 clients generate their own ephemeral keypair.
+  const clientSecretHex = bytesToHex(generateSecretKey());
 
   const safeRelays = [...new Set(relays.map((relay) => {
     let parsed: URL;
@@ -310,14 +305,12 @@ export class Nip46Signer implements Signer {
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer, onAuth });
 
-      // publish as current-spec kind 24133 + legacy 23194 for old signers
-      for (const kind of [REQUEST_KIND, LEGACY_REQUEST_KIND]) {
-        const ev = finalizeEvent(
-          { kind, content, tags: [["p", this.signerPubkey]], created_at },
-          this.sk,
-        );
-        for (const p of pool.publish(this.relays, ev)) p.catch(() => {});
-      }
+      // NIP-46 request and response events use kind 24133.
+      const ev = finalizeEvent(
+        { kind: REQUEST_KIND, content, tags: [["p", this.signerPubkey]], created_at },
+        this.sk,
+      );
+      for (const p of pool.publish(this.relays, ev)) p.catch(() => {});
     });
   }
 
