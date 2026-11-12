@@ -1,7 +1,6 @@
-import type { Event as NostrEvent, Filter } from "nostr-tools";
+import type { Event as NostrEvent, EventTemplate, Filter } from "nostr-tools";
 import { SimplePool, finalizeEvent, getPublicKey, generateSecretKey, nip04, nip19 } from "nostr-tools";
 import { verifyEvent } from "nostr-tools/pure";
-import type { SecretKey } from "nostr-tools/core";
 
 /* ------------------------------------------------------------------ */
 /* Relay pool                                                          */
@@ -25,14 +24,14 @@ export type RelayStatus = "connecting" | "open" | "closed" | "error";
 export interface Signer {
   kind: "nip07" | "local" | "nip46";
   pubkey: string;
-  sign(ev: NostrEvent): Promise<NostrEvent>;
+  sign(ev: EventTemplate): Promise<NostrEvent>;
   nip04Encrypt?(pubkey: string, plaintext: string): Promise<string>;
   nip04Decrypt?(pubkey: string, ciphertext: string): Promise<string>;
   nip44Encrypt?(pubkey: string, plaintext: string): Promise<string>;
   nip44Decrypt?(pubkey: string, ciphertext: string): Promise<string>;
 }
 
-function localSigner(sk: SecretKey, pubkey: string): Signer {
+function localSigner(sk: Uint8Array, pubkey: string): Signer {
   return {
     kind: "local",
     pubkey,
@@ -158,9 +157,11 @@ export function sub(
   let count = 0;
   let eoseCount = 0;
 
-  const handle = pool.subscribeMany(
+  if (filters.length === 0) return { close: () => {} };
+  const expectedEose = Math.min(relays.length, 2) * filters.length;
+  const handles = filters.map((filter) => pool.subscribeMany(
     relays,
-    filters,
+    filter,
     {
       onevent: (ev: NostrEvent) => {
         if (closed) return;
@@ -173,21 +174,19 @@ export function sub(
       },
       oneose: () => {
         eoseCount++;
-        if (eoseCount >= Math.min(relays.length, 2)) {
+        if (eoseCount >= expectedEose) {
           store.notify();
           opts.onEose?.();
         }
       },
     },
-  );
+  ));
 
   return {
     close() {
       closed = true;
-      try {
-        handle.close();
-      } catch {
-        /* noop */
+      for (const handle of handles) {
+        try { handle.close(); } catch { /* noop */ }
       }
     },
   };

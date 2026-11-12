@@ -65,7 +65,8 @@ export default function Notifications() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signer?.pubkey, useStoreTick()]);
 
-  const shown = items.filter((i) => filter === "all" || i.type === filter);
+  const filterType = { mention: "mentions", reaction: "reactions", repost: "reposts", zap: "zaps" } as const;
+  const shown = items.filter((i) => filter === "all" || filterType[i.type] === filter);
 
   const ICONS = {
     mention: <MessageCircle size={15} className="accent-text" />,

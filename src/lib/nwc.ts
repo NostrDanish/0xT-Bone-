@@ -3,7 +3,7 @@
  * URI format: nostr+walletconnect://<wallet-pubkey>?relay=<wss>&secret=<hex>
  */
 import type { Event as NostrEvent } from "nostr-tools";
-import { finalizeEvent, getPublicKey, nip04 } from "nostr-tools";
+import { finalizeEvent, nip04 } from "nostr-tools";
 import { hexToBytes, pool } from "./nostr";
 
 export interface NwcInfo {
@@ -35,7 +35,6 @@ function requestEvent(nwc: NwcInfo, method: string, params: any): NostrEvent {
       content,
       tags: [["p", nwc.walletPubkey]],
       created_at: Math.floor(Date.now() / 1000),
-      pubkey: getPublicKey(sk),
     },
     sk,
   );
@@ -45,7 +44,7 @@ async function waitForResponse(nwc: NwcInfo, requestId: string, timeoutMs = 2000
   return new Promise((resolve, reject) => {
     const sub = pool.subscribeMany(
       [nwc.relay],
-      [{ kinds: [23195], authors: [nwc.walletPubkey], "#e": [requestId], since: Math.floor(Date.now() / 1000) - 10 }],
+      { kinds: [23195], authors: [nwc.walletPubkey], "#e": [requestId], since: Math.floor(Date.now() / 1000) - 10 },
       {
         onevent: (ev: NostrEvent) => {
           try {

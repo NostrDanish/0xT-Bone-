@@ -103,7 +103,7 @@ export default function NoteCard({ event, embedded = false }: { event: NostrEven
         event.pubkey,
         event.id,
         amountMsat,
-        relayUrls(),
+        relayUrls,
         settings.nwcUri,
       );
       if (res.paid) {

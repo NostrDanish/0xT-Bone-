@@ -19,7 +19,7 @@
  * For maximum compatibility with older Amber versions, requests are also
  * published as kind 23194 (legacy request kind).
  */
-import type { Event as NostrEvent } from "nostr-tools";
+import type { Event as NostrEvent, EventTemplate } from "nostr-tools";
 import { finalizeEvent, generateSecretKey, getPublicKey, nip04, nip44 } from "nostr-tools";
 import { verifyEvent } from "nostr-tools/pure";
 import { bytesToHex, hexToBytes, pool } from "./nostr";
@@ -124,7 +124,7 @@ export function awaitAmberScan(
 
     sub = pool.subscribeMany(
       relays,
-      [{ kinds: [RESPONSE_KIND, LEGACY_REQUEST_KIND], "#p": [clientPubkey], since }],
+      { kinds: [RESPONSE_KIND, LEGACY_REQUEST_KIND], "#p": [clientPubkey], since },
       {
         onevent: (ev: NostrEvent) => {
           if (done || !verifyEvent(ev)) return;
@@ -237,7 +237,7 @@ export class Nip46Signer implements Signer {
     try {
       this.sub = pool.subscribeMany(
         this.relays,
-        [{ kinds: [RESPONSE_KIND, LEGACY_REQUEST_KIND], authors: [this.signerPubkey], "#p": [this.myPubkey], since }],
+        { kinds: [RESPONSE_KIND, LEGACY_REQUEST_KIND], authors: [this.signerPubkey], "#p": [this.myPubkey], since },
         {
           onevent: (ev: NostrEvent) => {
             if (this.destroyed || !verifyEvent(ev)) return;
@@ -298,7 +298,7 @@ export class Nip46Signer implements Signer {
       // publish as current-spec kind 24133 + legacy 23194 for old signers
       for (const kind of [REQUEST_KIND, LEGACY_REQUEST_KIND]) {
         const ev = finalizeEvent(
-          { kind, content, tags: [["p", this.signerPubkey]], created_at, pubkey: this.myPubkey },
+          { kind, content, tags: [["p", this.signerPubkey]], created_at },
           this.sk,
         );
         for (const p of pool.publish(this.relays, ev)) p.catch(() => {});
@@ -330,7 +330,7 @@ export class Nip46Signer implements Signer {
 
   /* --- Signer interface -------------------------------------------- */
 
-  async sign(ev: NostrEvent): Promise<NostrEvent> {
+  async sign(ev: EventTemplate): Promise<NostrEvent> {
     const result = await this.rpc(
       "sign_event",
       [JSON.stringify({ kind: ev.kind, content: ev.content, tags: ev.tags, created_at: ev.created_at })],

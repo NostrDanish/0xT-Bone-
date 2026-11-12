@@ -97,12 +97,13 @@ interface AppContextValue {
   signer: Signer | null;
   loginNip07: () => Promise<void>;
   loginNsec: (nsecOrHex: string) => Promise<void>;
-  loginNip46: (userPubkey: string, signer: Nip46Signer) => void;  createAccount: () => void;
+  loginNip46: (userPubkey: string, signer: Nip46Signer) => void;
+  createAccount: () => void;
   logout: () => void;
   // relays
   relays: RelayInfo[];
   setRelays: (r: RelayInfo[]) => void;
-  relayUrls: () => string[];
+  relayUrls: string[];
   writeRelayUrls: () => string[];
   // follows
   follows: Set<string>;
@@ -134,11 +135,16 @@ export function useApp(): AppContextValue {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [account, setAccount] = useState<AccountInfo | null>(() => load<AccountInfo | null>(LS.account, null));
   const [signer, setSigner] = useState<Signer | null>(null);
+  const activeNip46Ref = React.useRef<Nip46Signer | null>(null);
   const [relays, setRelaysState] = useState<RelayInfo[]>(() => {
-    const saved = loadArray(LS.relays);
-    return saved.length
-      ? saved
-      : DEFAULT_RELAYS.map((url) => ({ url, read: true, write: true }));
+    try {
+      const saved = JSON.parse(localStorage.getItem(LS.relays) ?? "null");
+      if (
+        Array.isArray(saved) &&
+        saved.every((r) => r && typeof r.url === "string" && typeof r.read === "boolean" && typeof r.write === "boolean")
+      ) return saved as RelayInfo[];
+    } catch { /* use defaults for missing or malformed relay settings */ }
+    return DEFAULT_RELAYS.map((url) => ({ url, read: true, write: true }));
   });
   const [follows, setFollows] = useState<Set<string>>(new Set(loadArray(LS.follows)));
   const [muted] = useState<Set<string>>(new Set());
@@ -171,25 +177,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!account) {
       setSigner(null);
+      const active = activeNip46Ref.current;
+      activeNip46Ref.current = null;
+      if (active) void active.destroy();
       return;
     }
     let cancelled = false;
     (async () => {
       try {
         if (account.kind === "local" && account.skHex) {
+          const active = activeNip46Ref.current;
+          activeNip46Ref.current = null;
+          if (active) void active.destroy();
           const s = makeLocalSigner(account.skHex).signer;
           if (!cancelled) setSigner(s);
         } else if (account.kind === "nip46" && account.nip46) {
-          // Reconnect the persisted remote-signing session (same client
-          // keypair → the signer still recognizes this client).
-          const s = new Nip46Signer(
-            account.nip46.relays,
-            account.nip46.clientSecretHex,
-            account.nip46.signerPubkey,
-          );
+          // Reuse the just-authenticated signer when logging in; on page
+          // reload, recreate it from the persisted NIP-46 client keypair.
+          const saved = account.nip46;
+          let s = activeNip46Ref.current;
+          if (!s || s.clientSecretHex !== saved.clientSecretHex || s.signerPubkey !== saved.signerPubkey) {
+            if (s) void s.destroy();
+            s = new Nip46Signer(saved.relays, saved.clientSecretHex, saved.signerPubkey);
+            activeNip46Ref.current = s;
+          }
           s.pubkey = account.pubkey;
           if (!cancelled) setSigner(s);
         } else {
+          const active = activeNip46Ref.current;
+          activeNip46Ref.current = null;
+          if (active) void active.destroy();
           // NIP-07
           const api = (window as any).nostr;
           if (!api) throw new Error("No NIP-07 extension found");
@@ -329,6 +346,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
     };
     localStorage.setItem(LS.account, JSON.stringify(acc));
+    activeNip46Ref.current = remote;
+    setSigner(remote);
     setAccount(acc);
   }, []);
 
@@ -336,6 +355,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (signer instanceof Nip46Signer) {
       // courtesy: tell the remote signer to end the session (NIP-46 logout)
       signer.destroy(true).catch(() => {});
+      if (activeNip46Ref.current === signer) activeNip46Ref.current = null;
     }
     localStorage.removeItem(LS.account);
     setAccount(null);
@@ -387,10 +407,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     loginNip07,
     loginNsec,
     createAccount,
+    loginNip46,
     logout,
     relays,
     setRelays,
-    relayUrls: () => relayUrls,
+    relayUrls,
     writeRelayUrls,
     follows,
     toggleFollow,
@@ -410,6 +431,9 @@ export function useStoreTick(): number {
   const { tick } = useApp();
   // store also notifies independently; combine with a local subscription
   const [v, setV] = React.useState(0);
-  React.useEffect(() => store.subscribe(() => setV((x) => x + 1)), []);
+  React.useEffect(() => {
+    const unsubscribe = store.subscribe(() => setV((x) => x + 1));
+    return () => { unsubscribe(); };
+  }, []);
   return v + tick;
 }
