@@ -16,8 +16,7 @@
  *
  * Transport: request + response events are kind 24133 (current spec),
  * content NIP-44 v2 encrypted (NIP-04 fallback when decrypting).
- * For maximum compatibility with older Amber versions, requests are also
- * published as kind 23194 (legacy request kind).
+ * NIP-46 request and response events use kind 24133.
  */
 import type { Event as NostrEvent, EventTemplate } from "nostr-tools";
 import { finalizeEvent, generateSecretKey, getPublicKey, nip04, nip44 } from "nostr-tools";
@@ -26,7 +25,6 @@ import { bytesToHex, hexToBytes, pool } from "./nostr";
 import type { Signer } from "./nostr";
 
 const REQUEST_KIND = 24133;
-const LEGACY_REQUEST_KIND = 23194;
 const RESPONSE_KIND = 24133;
 
 /** Relays used for the remote-signing session. */
@@ -124,7 +122,7 @@ export function awaitAmberScan(
 
     sub = pool.subscribeMany(
       relays,
-      { kinds: [RESPONSE_KIND, LEGACY_REQUEST_KIND], "#p": [clientPubkey], since },
+      { kinds: [RESPONSE_KIND], "#p": [clientPubkey], since },
       {
         onevent: (ev: NostrEvent) => {
           if (done || !verifyEvent(ev)) return;
@@ -182,16 +180,28 @@ export async function connectBunkerUri(
   if (relays.length === 0) throw new Error("bunker:// URI has no relays");
   const secret = params.get("secret") ?? "";
 
-  // nsecBunker convention: secret is the client's secret key (64 hex)
-  const sk =
-    secret && secret.length === 64 && /^[0-9a-fA-F]+$/.test(secret)
-      ? hexToBytes(secret)
-      : generateSecretKey();
-  const clientSecretHex = bytesToHex(sk);
+  // The bunker URI secret is a one-time pairing secret, not a client
+  // private key. NIP-46 clients generate their own ephemeral keypair.
+  const clientSecretHex = bytesToHex(generateSecretKey());
 
-  const signer = new Nip46Signer(relays, clientSecretHex, signerPubkey);
-  await signer.handshake(secret, opts);
-  return signer;
+  const safeRelays = [...new Set(relays.map((relay) => {
+    let parsed: URL;
+    try { parsed = new URL(relay); } catch { throw new Error("Invalid relay URL in bunker URI"); }
+    if (parsed.protocol !== "wss:" || !parsed.hostname) {
+      throw new Error("Bunker relays must use secure wss:// URLs");
+    }
+    return parsed.toString();
+  }))];
+  if (safeRelays.length === 0) throw new Error("bunker:// URI has no usable relays");
+
+  const signer = new Nip46Signer(safeRelays, clientSecretHex, signerPubkey);
+  try {
+    await signer.handshake(secret, opts);
+    return signer;
+  } catch (error) {
+    await signer.destroy();
+    throw error;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -237,7 +247,7 @@ export class Nip46Signer implements Signer {
     try {
       this.sub = pool.subscribeMany(
         this.relays,
-        { kinds: [RESPONSE_KIND, LEGACY_REQUEST_KIND], authors: [this.signerPubkey], "#p": [this.myPubkey], since },
+        { kinds: [RESPONSE_KIND], authors: [this.signerPubkey], "#p": [this.myPubkey], since },
         {
           onevent: (ev: NostrEvent) => {
             if (this.destroyed || !verifyEvent(ev)) return;
@@ -295,14 +305,12 @@ export class Nip46Signer implements Signer {
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer, onAuth });
 
-      // publish as current-spec kind 24133 + legacy 23194 for old signers
-      for (const kind of [REQUEST_KIND, LEGACY_REQUEST_KIND]) {
-        const ev = finalizeEvent(
-          { kind, content, tags: [["p", this.signerPubkey]], created_at },
-          this.sk,
-        );
-        for (const p of pool.publish(this.relays, ev)) p.catch(() => {});
-      }
+      // NIP-46 request and response events use kind 24133.
+      const ev = finalizeEvent(
+        { kind: REQUEST_KIND, content, tags: [["p", this.signerPubkey]], created_at },
+        this.sk,
+      );
+      for (const p of pool.publish(this.relays, ev)) p.catch(() => {});
     });
   }
 
@@ -333,7 +341,13 @@ export class Nip46Signer implements Signer {
   async sign(ev: EventTemplate): Promise<NostrEvent> {
     const result = await this.rpc(
       "sign_event",
-      [JSON.stringify({ kind: ev.kind, content: ev.content, tags: ev.tags, created_at: ev.created_at })],
+      [JSON.stringify({
+        pubkey: this.pubkey,
+        kind: ev.kind,
+        content: ev.content,
+        tags: ev.tags,
+        created_at: ev.created_at,
+      })],
       90_000,
     );
     let signed: NostrEvent;
@@ -342,6 +356,13 @@ export class Nip46Signer implements Signer {
     } catch {
       throw new Error("Malformed sign_event response");
     }
+    // Match the Android signer's defensive validation: reject any signer
+    // that substitutes the account or changes the event draft.
+    if (signed.pubkey !== this.pubkey) throw new Error("Signer substituted the account pubkey");
+    if (signed.kind !== ev.kind) throw new Error("Signer substituted the event kind");
+    if (signed.content !== ev.content) throw new Error("Signer substituted the event content");
+    if (signed.created_at !== ev.created_at) throw new Error("Signer substituted the event timestamp");
+    if (JSON.stringify(signed.tags) !== JSON.stringify(ev.tags)) throw new Error("Signer substituted the event tags");
     if (!verifyEvent(signed)) throw new Error("Event returned from signer is improperly signed");
     return signed;
   }
@@ -364,10 +385,19 @@ export class Nip46Signer implements Signer {
     try {
       const result = await this.rpc("switch_relays", [], 20_000);
       const list = JSON.parse(result);
-      if (Array.isArray(list) && list.length && list.every((x) => typeof x === "string")) {
-        this.relays = list;
+      if (
+        Array.isArray(list) &&
+        list.length > 0 &&
+        list.length <= 20 &&
+        list.every((x) => {
+          if (typeof x !== "string") return false;
+          try { return new URL(x).protocol === "wss:"; } catch { return false; }
+        })
+      ) {
+        const safeList = [...new Set(list as string[])];
+        this.relays = safeList;
         this.startSubscription();
-        return list;
+        return safeList;
       }
     } catch { /* optional */ }
     return null;
