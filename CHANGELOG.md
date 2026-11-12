@@ -5,6 +5,62 @@ All notable changes to this fork are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.5.5] — 2026-11-10
+
+### Added
+- Youniversal one-tap looks (Paper, Midnight, Porcelain, Rosewood, Signal): each is a coordinated bundle of background, contrast, accent, font, corner radius and text size with a live palette preview. Editing any bundled control by hand switches the active look to Custom; wallpaper colours remain a separate option. Classic mode keeps its historical styles.
+- Optional "fit media to its real shape" setting (default off; the fixed box is unchanged). Frames are sized from the dimensions a post states (NIP-92 `imeta` dim) before download, then refined once loaded, with tall items capped.
+- Blurred previews: BlurHash codes from posts are decoded tiny and off-thread as the loading stand-in in fitted mode.
+- Video posters: when the existing video-thumbnails setting is on, videos show the poster still the post supplies. Nothing is extracted from videos on-device.
+- Your own posts now carry `imeta` hints: image and video dimensions are measured at upload and a BlurHash is computed for images, so they render pre-sized in other clients.
+- Soft-card feed under Youniversal: posts float on a one-step-deeper page, with card gaps and no between-post hairlines (kept at High contrast, and unchanged in classic).
+- Engagement motion: reply/repost/like/zap buttons get a spring press-scale, and a fresh like gets a small pop that only fires on the not-liked → liked edge.
+- Reading typography under Youniversal: larger semi-bold author names, a larger and airier body ladder, and scannable engagement counts.
+
+### Changed
+- Buttons, toggles and snackbars swap to the kit at the definition, so every settings row, dialog and screen that uses them gets filled/outlined buttons and a modern switch under Youniversal. Classic is unchanged and call sites did not need to change.
+- Navigation under Youniversal uses a 12% slide + fade; classic reproduces the library defaults byte-for-byte.
+- Notifications and Notes empty screens use the kit's designed empty state under Youniversal, with the write-note action kept. Decoy screens are deliberately untouched.
+- Profile action buttons (follow, block, share) are more compact, and the feed and list tab strips are inset so the active tab's rounded border is no longer clipped at the screen edge or overdrawn by the divider.
+
+### Fixed
+- Notifications no longer fill with strangers' posts: one eligibility gate now guards every notification entry point, so an event must prove it involves the account (p-tag, or a reply to / quote of / reaction to / vote on your own event) before it can become a notification. Previously the load-older path merged whatever a relay returned, so relays ignoring the `#p` filter injected unrelated posts as mentions and replies.
+- A poisoned notification cache now self-heals: saved rows are re-validated through the same gate on launch and invalid rows are deleted, so recovery no longer requires clearing app data. Reaction/repost/vote rows are only dropped when their referenced note is known to be someone else's.
+- Tor no longer starts from a stale transport choice on slower devices: relay transport is only rebuilt once settings have loaded, instead of racing the settings read at startup.
+
+### Security
+- Removed a certificate-validation bypass before it ever shipped. From an earlier revision of this release, API 26–28 relay connections installed a `TrustManager` whose `checkServerTrusted()` and `checkClientTrusted()` were empty, which accepts any certificate — expired, self-signed or issued for a different host — while still appearing to use TLS. It was described in-code as a "modern CA bundle" patch, but that bundle was never part of the repo. The platform trust store now performs verification, with a connection spec permitting TLS 1.2 and 1.3. No custom `TrustManager` remains in the codebase. This release is the first build to contain the corrected code.
+
+### Verification limits
+- The build, signing identity (`social.tbone.fork.beta`), permission set and unit-test suite are verified in CI, including a signed production variant.
+- No Android 8 (API 26) device or emulator run was performed. The API 26 changes in this release — core-library desugaring, the TLS 1.2+ spec, fail-closed Tor ordering, dropped BouncyCastle provider registration and the `MediaRecorder` guards — are compile- and review-level only. Live relay, physical-device, TalkBack, process-death and end-to-end Tor isolation checks remain outstanding.
+
+
+## [0.5.4] — 2026-11-09
+
+### Removed
+- Removed the Webxdc mini-app feature and its toolbox, player, bridge, import/export and discovery code. On upgrade, app-owned mini-app files and tool settings are removed. Legacy browser data cleanup is retried if the installed WebView does not support it; the app warns when cleanup remains incomplete. Exported and shared copies cannot be recalled.
+
+### Changed
+- Clarified media metadata and Tor upload preflight limitations; follower views disclose incomplete coverage.
+- Improved notes, hidden accounts, list replacement safety, links, notifications, accessibility, and player lifecycle. Duress deletion and Tor protections have scope limitations and are not forensic or universal network guarantees.
+
+### Fixed in the release-readiness candidate
+- Audio uploads stage their own copy instead of risking deletion of a source file; audio and video staging enforce a stream-size ceiling.
+- Note editors stop saves when attachment data cannot be read instead of silently treating failed decryptions as missing data.
+
+### Added in the final release
+- Note action menu: "Delete request" publishes a signed NIP-09 (kind 5) deletion request for your own notes, with a confirmation step. Relays are asked to delete the note; they may or may not honour it, and copies may already exist elsewhere.
+- Greentext: lines starting with `>` render entirely in green — bright matrix green on dark backgrounds, a deeper green on light and cream — in the write tab and in published notes.
+
+### Fixed in the final release
+- Video compression works again: with compression on, every video is downscaled to the upload profile with a capped encoder bitrate and the re-encoded file is always the upload. A successful re-encode also strips embedded metadata (location, device, timestamps). Audio is re-encoded and stripped the same way when either compression toggle is on; the write-tab metadata warning is removed and the Blossom settings wording corrected.
+- Replies no longer silently quote a note quoted by the note being replied to; quoting only happens when chosen explicitly.
+- Content filters: per-word matching, the NSFW warning veil, grouped hidden-content markers, and quoted notes surviving filters.
+
+### Verification limits
+- Device upgrade, process-death, live relay, physical-device TalkBack and end-to-end Tor isolation checks remain necessary.
+
 ## [0.5.3] — 2026-11-01
 
 ### Added

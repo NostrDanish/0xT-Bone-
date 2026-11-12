@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
  * when a request starts.
  */
 
-private val ButtonContentPadding = PaddingValues(horizontal = 22.dp, vertical = 14.dp)
+private val ButtonContentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
 
 @Composable
 private fun ButtonRow(
@@ -100,6 +100,28 @@ public fun YouniversalButton(
     content: @Composable RowScope.() -> Unit,
 ) {
     Button(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        shape = shape,
+        colors = colors,
+        contentPadding = contentPadding,
+        content = content,
+    )
+}
+
+/** Fully custom content in an outlined pill button. */
+@Composable
+public fun YouniversalOutlinedButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    shape: Shape = YouniversalShapes.Pill,
+    colors: ButtonColors = ButtonDefaults.outlinedButtonColors(),
+    contentPadding: PaddingValues = ButtonContentPadding,
+    content: @Composable RowScope.() -> Unit,
+) {
+    OutlinedButton(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,

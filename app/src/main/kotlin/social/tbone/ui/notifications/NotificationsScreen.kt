@@ -1,5 +1,10 @@
 package social.tbone.ui.notifications
 
+import androidx.compose.material3.MaterialTheme
+import social.tbone.ui.theme.appCornerShape
+import social.tbone.ui.theme.feedShellBackground
+import dev.youniversal.theme.YouniversalEmptyState
+import dev.youniversal.theme.YouniversalTheme
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -150,7 +155,7 @@ fun NotificationsScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().background(feedShellBackground())) {
                 // The 24h summary bar is ALWAYS visible — even when a selected
                 // filter (e.g. mentions) currently has zero items, the stat
                 // stays up so you can see at a glance what's empty.
@@ -173,10 +178,20 @@ fun NotificationsScreen(
                                 modifier = Modifier.weight(1f).fillMaxWidth(),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Text(
-                                    text = if (enabledFilters.isEmpty()) "all notification filters are off" else "no notifications yet",
-                                    style = BonyType.meta.copy(color = BonyColors.TextMute),
-                                )
+                                if (YouniversalTheme.enabled) {
+                                    YouniversalEmptyState(
+                                        title = if (enabledFilters.isEmpty()) {
+                                            "all notification filters are off"
+                                        } else {
+                                            "no notifications yet"
+                                        },
+                                    )
+                                } else {
+                                    Text(
+                                        text = if (enabledFilters.isEmpty()) "all notification filters are off" else "no notifications yet",
+                                        style = BonyType.meta.copy(color = BonyColors.TextMute),
+                                    )
+                                }
                             }
                             LoadMoreBar(
                                 hasMore = hasMore,
@@ -527,7 +542,7 @@ private fun NotificationRow(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .clip(appCornerShape(MaterialTheme.shapes.extraSmall, RoundedCornerShape(8.dp))),
                 )
                 Spacer(Modifier.width(8.dp))
             }

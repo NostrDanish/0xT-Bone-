@@ -1,6 +1,10 @@
 package social.tbone.notes
 
+import androidx.room.withTransaction
+import social.tbone.db.AppDatabase
+
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import social.tbone.db.NoteAttachmentDao
@@ -101,16 +105,18 @@ class NotesRepository @Inject constructor(
     private val folderDao: NoteFolderDao,
     private val attachmentDao: NoteAttachmentDao,
     private val crypto: NotesCrypto,
+    private val noteWrites: NoteWriteCoordinator,
+    private val database: AppDatabase,
 ) {
 
     /** All notes + checklists, ordered pinned-first then manual order. */
-    val notes: Flow<List<NoteUi>> = dao.observeAll().map { entities ->
-        entities.mapNotNull { it.toUi(crypto) }
+    val notes: Flow<List<NoteUi>> = combine(noteWrites.available, dao.observeAll()) { available, entities ->
+        if (available) entities.mapNotNull { it.toUi(crypto) } else emptyList()
     }
 
     /** All folders, pinned-first then manual order. */
-    val folders: Flow<List<NoteFolderUi>> = folderDao.observeAll().map { list ->
-        list.map {
+    val folders: Flow<List<NoteFolderUi>> = combine(noteWrites.available, folderDao.observeAll()) { available, list ->
+        if (!available) emptyList() else list.map {
             NoteFolderUi(
                 id = it.id,
                 name = it.name,
@@ -123,33 +129,33 @@ class NotesRepository @Inject constructor(
     }
 
     /** Attachments for one note, in insertion order. */
+    /** An unreadable attachment is an error, not an absent attachment. */
     fun attachments(noteId: String): Flow<List<NoteAttachmentUi>> =
-        attachmentDao.observeByNote(noteId).map { list ->
-            list.mapNotNull { entity ->
-                runCatching {
-                    NoteAttachmentUi(
-                        id = entity.id,
-                        noteId = entity.noteId,
-                        kind = entity.kind,
-                        mime = entity.mime,
-                        data = crypto.decryptBytes(entity.ciphertext, entity.iv),
-                        size = entity.size,
-                        createdAt = entity.createdAt,
-                    )
-                }.getOrNull()
+        combine(noteWrites.available, attachmentDao.observeByNote(noteId)) { available, list ->
+            if (!available) emptyList() else list.map { entity ->
+                NoteAttachmentUi(
+                    id = entity.id,
+                    noteId = entity.noteId,
+                    kind = entity.kind,
+                    mime = entity.mime,
+                    data = crypto.decryptBytes(entity.ciphertext, entity.iv),
+                    size = entity.size,
+                    createdAt = entity.createdAt,
+                )
             }
-        }
+        }.flowOn(kotlinx.coroutines.Dispatchers.Default)
 
     /** Live stats (counts + stored ciphertext bytes) without decrypting anything. */
     val stats: Flow<NotesStats> = combine(
         dao.observeNoteCount(),
         dao.observeChecklistCount(),
         dao.observeTotalCiphertextBytes(),
-    ) { notes, checklists, bytes ->
-        NotesStats(notes, checklists, bytes)
+        noteWrites.available,
+    ) { notes, checklists, bytes, available ->
+        if (available) NotesStats(notes, checklists, bytes) else NotesStats()
     }
 
-    suspend fun getById(id: String): NoteUi? = dao.getById(id)?.let { it.toUi(crypto) }
+    suspend fun getById(id: String): NoteUi? = dao.getById(id)?.let { it.toUi(crypto, strictTitle = true) }
 
     /** Runs the encrypt→decrypt round-trip; true when the key works. */
     fun encryptionSelfTest(): Boolean = crypto.selfTest()
@@ -167,13 +173,13 @@ class NotesRepository @Inject constructor(
         text: String,
         folderId: String?,
     ): String {
-        val trimmed = text.trim()
         val eid = id ?: UUID.randomUUID().toString()
         val existing = dao.getById(eid)
-        if (trimmed.isEmpty() && existing == null) return eid
         val now = System.currentTimeMillis()
-        val (ct, iv) = crypto.encrypt(trimmed)
-        val (tct, tiv) = if (title.isBlank()) null to null else crypto.encrypt(title.trim())
+        // Whitespace can be meaningful in notes (indentation, blank lines,
+        // and spaces beside attachment markers); store the exact edit.
+        val (ct, iv) = crypto.encrypt(text)
+        val (tct, tiv) = if (title.isBlank()) null to null else crypto.encrypt(title)
         dao.upsert(
             NoteEntity(
                 id = eid,
@@ -227,8 +233,7 @@ class NotesRepository @Inject constructor(
     }
 
     suspend fun delete(id: String) {
-        attachmentDao.deleteByNote(id)
-        dao.delete(id)
+        dao.deleteWithAttachments(id)
     }
 
     // ── folders ───────────────────────────────────────────────────────────────
@@ -256,8 +261,7 @@ class NotesRepository @Inject constructor(
 
     /** Deletes a folder; its notes/checklists become un-filed (content kept). */
     suspend fun deleteFolder(id: String) {
-        dao.clearFolder(id)
-        folderDao.delete(id)
+        dao.unfileAndDeleteFolder(id)
     }
 
     suspend fun setFolderRowPinned(id: String, pinned: Boolean) = folderDao.setPinned(id, pinned)
@@ -295,8 +299,9 @@ class NotesRepository @Inject constructor(
         kind: String,
         mime: String,
         bytes: ByteArray,
+        id: String = UUID.randomUUID().toString(),
     ): String {
-        val id = UUID.randomUUID().toString()
+        check(dao.getById(noteId) != null) { "Note no longer exists" }
         val (ct, iv) = crypto.encryptBytes(bytes)
         attachmentDao.insert(
             NoteAttachmentEntity(
@@ -313,9 +318,33 @@ class NotesRepository @Inject constructor(
         return id
     }
 
+    /** Commit the encrypted bytes and their inline marker together or neither. */
+    suspend fun addAttachmentAndSaveText(
+        noteId: String, attachmentId: String, kind: String, mime: String, bytes: ByteArray,
+        title: String, text: String, folderId: String?,
+    ) = database.withTransaction {
+        check(text.contains("[[$kind:$attachmentId]]")) { "Attachment marker missing" }
+        addAttachment(noteId, kind, mime, bytes, attachmentId)
+        saveText(noteId, title, text, folderId)
+    }
+
+    /** Remove an inline reference and its ciphertext in the same transaction. */
+    suspend fun removeAttachmentAndSaveText(
+        noteId: String, attachmentId: String, title: String, text: String, folderId: String?,
+    ) = database.withTransaction {
+        check(dao.getById(noteId) != null) { "Note no longer exists" }
+        val attachment = attachmentDao.getById(attachmentId)
+        check(attachment == null || attachment.noteId == noteId) { "Attachment belongs to another note" }
+        saveText(noteId, title, text, folderId)
+        // The same attachment may be referenced more than once in the body.
+        if (!text.contains("[[image:$attachmentId]]") && !text.contains("[[voice:$attachmentId]]")) {
+            deleteAttachment(attachmentId)
+        }
+    }
+
     suspend fun deleteAttachment(id: String) = attachmentDao.delete(id)
 
-    private fun NoteEntity.toUi(crypto: NotesCrypto): NoteUi? = runCatching {
+    private fun NoteEntity.toUi(crypto: NotesCrypto, strictTitle: Boolean = false): NoteUi? = runCatching {
         NoteUi(
             id = id,
             kind = entityKind(kind),
@@ -326,7 +355,10 @@ class NotesRepository @Inject constructor(
             folderPinned = folderPinned,
             sortOrder = sortOrder,
             folderId = folderId,
-            title = runCatching {
+            title = if (strictTitle) {
+                if (titleCiphertext == null && titleIv == null) ""
+                else crypto.decrypt(requireNotNull(titleCiphertext), requireNotNull(titleIv))
+            } else runCatching {
                 val tc = titleCiphertext ?: return@runCatching ""
                 val ti = titleIv ?: return@runCatching ""
                 crypto.decrypt(tc, ti)

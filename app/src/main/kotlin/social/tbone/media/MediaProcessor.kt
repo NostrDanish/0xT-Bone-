@@ -25,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import social.tbone.util.copyBounded
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.coroutines.resume
@@ -45,21 +46,29 @@ data class PreparedMedia(
     val file: File,
     val mime: String,
     val extension: String,
+    /** Pixel dimensions of the prepared file when known (images/videos). */
+    val width: Int? = null,
+    val height: Int? = null,
 ) {
     val sizeBytes: Long get() = file.length()
 }
 
 /**
  * Prepares media before upload:
- *  - IMAGES: re-encoded as JPEG (which strips all EXIF/embedded metadata),
+ *  - IMAGES: decoded and re-encoded as JPEG (which removes source EXIF),
  *    orientation applied, optionally compressed — with a quality loop that
  *    keeps the file under an optional byte cap (used for the 800 KB
- *    avatar/banner limit).
- *  - VIDEOS: optionally transcoded with Media3 Transformer (re-encode also
- *    drops embedded metadata); unsupported sources fall back to a raw copy
- *    with their original MIME type and extension.
- *  - AUDIO: copied unchanged by default; opt-in AAC/M4A compression is kept only
- *    when smaller, otherwise the original bytes, MIME type and extension win.
+ *    avatar/banner limit). Animated GIFs are the exception: their bytes are
+ *    copied unchanged so the animation survives the upload.
+ *  - VIDEOS: transcoded with Media3 Transformer whenever compression is
+ *    enabled — tall sources are downscaled to the upload profile, everything
+ *    is standardized to H.264/MP4. Unsupported sources fall back to a raw
+ *    copy with their original MIME type and extension.
+ *  - AUDIO: copied unchanged by default; opt-in AAC/M4A re-encoding is always
+ *    used when it succeeds (it is the metadata-stripped artifact), otherwise
+ *    the original bytes, MIME type and extension win.
+ *  - FILES: any other file is copied unchanged and uploaded with its detected
+ *    MIME type and extension (application/octet-stream when unknown).
  *
  * Every entry point returns a [PreparedMedia] so callers always know the true
  * MIME type and extension of the prepared file.
@@ -90,13 +99,45 @@ object MediaProcessor {
      */
     const val VIDEO_MAX_BYTES = VideoUploadPolicy.MAX_BYTES
 
-    /** Videos taller than this are downscaled before upload; smaller ones are sent as-is. */
+    /** Videos taller than this are downscaled before upload; shorter ones are re-encoded at their original size. */
     private const val VIDEO_TARGET_HEIGHT = VideoUploadPolicy.TARGET_HEIGHT
 
     private val VIDEO_TOO_BIG_MESSAGE: String
         get() = "video is larger than ${VIDEO_MAX_BYTES / (1024L * 1024L)} MB"
+    /** Same safety ceiling as video; servers may impose smaller limits. */
+    const val AUDIO_MAX_BYTES = 500L * 1024L * 1024L
+    private val AUDIO_TOO_BIG_MESSAGE: String get() = "audio is larger than ${AUDIO_MAX_BYTES / (1024L * 1024L)} MB"
     private const val AUDIO_COMPRESSED_MIME = "audio/mp4"
     private const val AUDIO_COMPRESSED_EXT = "m4a"
+
+    /** Safety ceiling for GIFs and arbitrary files: 500 MB. */
+    const val FILE_MAX_BYTES = VideoUploadPolicy.MAX_BYTES
+    private val FILE_TOO_BIG_MESSAGE: String get() = "file is larger than ${FILE_MAX_BYTES / (1024L * 1024L)} MB"
+
+    /**
+     * Prepares any file for upload. The bytes are copied unchanged — no
+     * re-encoding, no size cap beyond the 500 MB safety ceiling — and the
+     * MIME type is the provider's declaration, the extension-based guess, or
+     * `application/octet-stream` when both are unknown. Servers validate the
+     * declared type against the body, so both are reported honestly.
+     */
+    suspend fun prepareFileMedia(
+        context: Context,
+        uri: Uri,
+    ): PreparedMedia? {
+        val (declaredMime, nameExtension) = withContext(Dispatchers.IO) {
+            sourceMimeOf(context, uri) to MimeTypes.extensionFromFileName(sourceNameOf(context, uri))
+        }
+        val mime = declaredMime
+            ?: MimeTypes.mimeForExtension(nameExtension)
+            ?: "application/octet-stream"
+        val extension = nameExtension.ifBlank {
+            MimeTypes.extensionFor(mime).ifBlank { "bin" }
+        }
+        val sourceCopy = copyToCache(context, uri, extension, "tbone_file", FILE_MAX_BYTES, FILE_TOO_BIG_MESSAGE)
+            ?: return null
+        return PreparedMedia(sourceCopy, mime, extension)
+    }
 
     /** Re-encodes an image URI to a clean JPEG and reports it as such. */
     suspend fun prepareImageMedia(
@@ -104,16 +145,45 @@ object MediaProcessor {
         uri: Uri,
         maxBytes: Long? = null,
         compress: Boolean = true,
-    ): PreparedMedia? = prepareImageFile(context, uri, maxBytes, compress)
-        ?.let { PreparedMedia(it, IMAGE_MIME, IMAGE_EXT) }
+    ): PreparedMedia? {
+        // Animated GIFs must stay GIFs: the JPEG pipeline keeps only the first
+        // frame, so a picked GIF is copied byte-for-byte instead. When a byte
+        // cap is set (the 800 KB avatar limit) an oversized GIF falls through
+        // to the static JPEG path, which can actually meet the cap.
+        if (isAnimatedGif(context, uri)) {
+            val sourceSize = sourceSizeOf(context, uri)
+            if (maxBytes == null || (sourceSize in 1..maxBytes)) {
+                copyToCache(context, uri, "gif", "tbone_gif", FILE_MAX_BYTES, FILE_TOO_BIG_MESSAGE)
+                    ?.let { gif ->
+                        val (w, h) = imageSizeOf(gif)
+                        return PreparedMedia(gif, "image/gif", "gif", w, h)
+                    }
+            }
+        }
+        return prepareImageFile(context, uri, maxBytes, compress)
+            ?.let { file ->
+                val (w, h) = imageSizeOf(file)
+                PreparedMedia(file, IMAGE_MIME, IMAGE_EXT, w, h)
+            }
+    }
+
+    /** True when [uri] looks like an animated GIF by MIME type or extension. */
+    private fun isAnimatedGif(context: Context, uri: Uri): Boolean {
+        val mime = sourceMimeOf(context, uri)
+        if (mime.equals("image/gif", ignoreCase = true)) return true
+        // Document providers sometimes report a generic MIME; trust the name.
+        return MimeTypes.extensionFromFileName(sourceNameOf(context, uri)) == "gif"
+    }
 
     /**
-     * Prepares a video for upload. Media3 Transformer is tried first when
-     * compression is enabled **and** the source is bigger than the 1280p
-     * profile. If the source codec/container is not supported, or the transcode
-     * does not actually shrink the file, the original bytes are uploaded with
-     * their detected MIME type and extension rather than rejecting a file the
-     * user's Blossom server may accept.
+     * Prepares a video for upload. Media3 Transformer runs whenever
+     * compression is enabled — tall sources are downscaled to the upload
+     * profile, bitrate is capped, everything is standardized to H.264/MP4,
+     * and a successful transcode is always the upload (it is also the
+     * metadata-stripped artifact). Only if the source codec/container is
+     * not supported are the original bytes uploaded with their detected
+     * MIME type and extension, rather than rejecting a file the user's
+     * Blossom server may accept.
      */
     suspend fun prepareVideoMedia(
         context: Context,
@@ -126,56 +196,48 @@ object MediaProcessor {
         }
         if (!VideoUploadPolicy.isWithinCeiling(sourceSize)) throw IllegalArgumentException(VIDEO_TOO_BIG_MESSAGE)
 
-        // Some content providers omit SIZE or return zero. Copy those sources
-        // once with a hard byte cap before invoking Media3, both to measure them
-        // accurately and to avoid feeding an unexpectedly huge stream to a codec.
-        val sourceCopy = if (sourceSize <= 0L) {
-            copyVideoToCache(context, uri, sourceExtension) ?: return null
-        } else null
-        val sourceUri = sourceCopy?.let { Uri.fromFile(it) } ?: uri
-
-        if (!compress) {
-            val original = sourceCopy ?: copyVideoToCache(context, uri, sourceExtension) ?: return null
-            return PreparedMedia(original, sourceMime, sourceExtension)
-        }
-
-        // Re-encoding a clip that is already at or under 1280p costs quality and
-        // time and can even make it larger, so only taller sources are
-        // transcoded (an unknown height is given the benefit of the doubt).
-        val sourceHeight = withContext(Dispatchers.IO) { videoHeightOf(context, sourceUri) }
-        val transcoded = if (VideoUploadPolicy.needsTranscode(sourceHeight)) {
-            try {
-                transcodeVideo(context, sourceUri)
+        // Snapshot and enforce the real byte ceiling before giving a provider's
+        // stream to a codec. A provider's reported SIZE can be absent or false.
+        val sourceCopy = copyVideoToCache(context, uri, sourceExtension) ?: return null
+        try {
+            if (!compress) {
+                val (w, h) = withContext(Dispatchers.IO) { videoSizeOf(context, Uri.fromFile(sourceCopy)) }
+                return PreparedMedia(sourceCopy, sourceMime, sourceExtension, w, h)
+            }
+            val sourceHeight = withContext(Dispatchers.IO) { videoHeightOf(context, Uri.fromFile(sourceCopy)) }
+            val transcoded = try {
+                transcodeVideo(context, Uri.fromFile(sourceCopy), sourceHeight)
             } catch (cancelled: CancellationException) {
-                sourceCopy?.delete()
                 throw cancelled
             } catch (error: Exception) {
                 Timber.w(error, "video transcode unavailable; uploading original file")
                 null
             }
-        } else null
-
-        if (transcoded != null && transcoded.exists() && transcoded.length() > 0L) {
-            val originalBytes = sourceSize.takeIf { it > 0L } ?: sourceCopy?.length() ?: -1L
-            // Never throw away a finished transcode because it is "too big" for
-            // an arbitrary client cap — only prefer the original when it is
-            // genuinely smaller, and keep the safety ceiling for both.
-            if (VideoUploadPolicy.preferTranscoded(transcoded.length(), originalBytes) &&
-                VideoUploadPolicy.isWithinCeiling(transcoded.length())
-            ) {
-                sourceCopy?.delete()
-                return PreparedMedia(transcoded, VIDEO_MIME, VIDEO_EXT)
+            // A successful transcode IS the compressed, metadata-stripped
+            // upload: the re-encode is written fresh by the muxer, so source
+            // metadata (location, device, timestamps) never reaches it.
+            // Older versions always used this result; the later
+            // "only if smaller" rule silently discarded most re-encodes and
+            // uploaded the untouched original instead, which is why videos
+            // stopped being compressed. Use the transcode whenever it
+            // succeeded and is within the safety ceiling.
+            if (transcoded != null && transcoded.exists() && transcoded.length() > 0L &&
+                VideoUploadPolicy.preferTranscoded(transcoded.length(), sourceCopy.length()) &&
+                VideoUploadPolicy.isWithinCeiling(transcoded.length())) {
+                // Probe the file actually uploaded (it may be downscaled).
+                val (w, h) = withContext(Dispatchers.IO) { videoSizeOf(context, Uri.fromFile(transcoded)) }
+                sourceCopy.delete()
+                return PreparedMedia(transcoded, VIDEO_MIME, VIDEO_EXT, w, h)
             }
-            transcoded.delete()
+            transcoded?.delete()
+            val (dispW, dispH) = withContext(Dispatchers.IO) {
+                videoSizeOf(context, Uri.fromFile(sourceCopy))
+            }
+            return PreparedMedia(sourceCopy, sourceMime, sourceExtension, dispW, dispH)
+        } catch (failure: Throwable) {
+            sourceCopy.delete()
+            throw failure
         }
-        transcoded?.delete()
-
-        val original = sourceCopy ?: copyVideoToCache(context, uri, sourceExtension) ?: return null
-        if (original.length() > VIDEO_MAX_BYTES) {
-            original.delete()
-            throw IllegalArgumentException(VIDEO_TOO_BIG_MESSAGE)
-        }
-        return PreparedMedia(original, sourceMime, sourceExtension)
     }
 
     /**
@@ -200,42 +262,37 @@ object MediaProcessor {
         val sourceExtension = nameExtension.takeIf { inferredMime != null }
             ?: MimeTypes.extensionFor(sourceMime).ifBlank { return null }
 
-        // A few document providers omit OpenableColumns.SIZE. Copy those sources
-        // once so the comparison uses their real byte count and a failed or
-        // unhelpful transcode can still fall back to the exact original bytes.
-        val comparisonCopy = if (compress && sourceSize <= 0L) {
-            copyToCache(context, uri, sourceExtension, "tbone_audio")
-        } else null
-        val comparisonSize = comparisonCopy?.length()?.takeIf { it > 0L } ?: sourceSize
-        val transcodeUri = comparisonCopy?.let { Uri.fromFile(it) } ?: uri
-
-        if (compress) {
-            val transcoded = try {
-                transcodeAudio(context, transcodeUri)
-            } catch (cancelled: CancellationException) {
-                comparisonCopy?.delete()
-                throw cancelled
-            } catch (error: Exception) {
-                Timber.w(error, "audio transcode unavailable; uploading original file")
-                null
-            }
-            if (transcoded != null && transcoded.exists() && transcoded.length() > 0L) {
-                // Never make a file larger just because compression was requested.
-                if (comparisonSize <= 0L || transcoded.length() < comparisonSize) {
-                    comparisonCopy?.delete()
+        if (sourceSize > AUDIO_MAX_BYTES) throw IllegalArgumentException(AUDIO_TOO_BIG_MESSAGE)
+        // Always use an app-owned staging file. Returning a file:// source here
+        // lets the upload caller's cleanup delete the user's original recording.
+        // The streaming cap also covers providers that omit or misreport SIZE.
+        val sourceCopy = copyToCache(context, uri, sourceExtension, "tbone_audio", AUDIO_MAX_BYTES, AUDIO_TOO_BIG_MESSAGE)
+            ?: return null
+        try {
+            if (compress) {
+                val transcoded = try {
+                    transcodeAudio(context, Uri.fromFile(sourceCopy))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Timber.w(error, "audio transcode unavailable; uploading original file")
+                    null
+                }
+                // As with video: a successful re-encode is the compressed,
+                // metadata-stripped upload and is always used when
+                // compression is on; the old smaller-only rule discarded it
+                // and sent the original (with its tags) instead.
+                if (transcoded != null && transcoded.exists() && transcoded.length() > 0L) {
+                    sourceCopy.delete()
                     return PreparedMedia(transcoded, AUDIO_COMPRESSED_MIME, AUDIO_COMPRESSED_EXT)
                 }
-                transcoded.delete()
+                transcoded?.delete()
             }
-            comparisonCopy?.let { return PreparedMedia(it, sourceMime, sourceExtension) }
+            return PreparedMedia(sourceCopy, sourceMime, sourceExtension)
+        } catch (failure: Throwable) {
+            sourceCopy.delete()
+            throw failure
         }
-
-        val original = if (uri.scheme == "file") {
-            uri.path?.let(::File)?.takeIf { it.exists() && it.length() > 0L }
-        } else {
-            copyToCache(context, uri, sourceExtension, "tbone_audio")
-        } ?: return null
-        return PreparedMedia(original, sourceMime, sourceExtension)
     }
 
     /** The MIME type the content resolver reports for [uri] (may be null). */
@@ -294,60 +351,27 @@ object MediaProcessor {
     }
 
     private suspend fun copyToCache(
-        context: Context,
-        uri: Uri,
-        extension: String,
-        prefix: String,
+        context: Context, uri: Uri, extension: String, prefix: String,
+        maxBytes: Long, tooLarge: String,
     ): File? = withContext(Dispatchers.IO) {
-        runCatching {
-            val suffix = extension.ifBlank { "bin" }
-            val out = File(context.cacheDir, "${prefix}_${System.currentTimeMillis()}.$suffix")
-            val input = if (uri.scheme == "file") {
-                uri.path?.let(::File)?.takeIf { it.exists() }?.inputStream()
-            } else {
-                context.contentResolver.openInputStream(uri)
-            } ?: return@runCatching null
-            input.use { source -> out.outputStream().use { output -> source.copyTo(output) } }
-            out.takeIf { it.exists() && it.length() > 0L }
-        }.getOrNull()
-    }
-
-    /** Streams an original video into cache and aborts if it passes [VIDEO_MAX_BYTES]. */
-    private suspend fun copyVideoToCache(
-        context: Context,
-        uri: Uri,
-        extension: String,
-    ): File? = withContext(Dispatchers.IO) {
-        val suffix = extension.ifBlank { VIDEO_EXT }
-        val out = File(context.cacheDir, "tbone_video_${System.currentTimeMillis()}.$suffix")
+        val suffix = extension.takeIf { it.isNotBlank() && it.all(Char::isLetterOrDigit) } ?: "bin"
         val input = if (uri.scheme == "file") {
             uri.path?.let(::File)?.takeIf { it.exists() }?.inputStream()
-        } else {
-            context.contentResolver.openInputStream(uri)
-        } ?: return@withContext null
-
+        } else context.contentResolver.openInputStream(uri)
+        if (input == null) return@withContext null
+        val out = try { File.createTempFile("${prefix}_", ".$suffix", context.cacheDir) }
+            catch (error: Throwable) { input.close(); throw error }
         try {
-            input.use { source ->
-                out.outputStream().use { output ->
-                    val buffer = ByteArray(8 * 1024)
-                    var total = 0L
-                    while (true) {
-                        val count = source.read(buffer)
-                        if (count < 0) break
-                        total += count
-                        if (total > VIDEO_MAX_BYTES) {
-                            throw IllegalArgumentException(VIDEO_TOO_BIG_MESSAGE)
-                        }
-                        output.write(buffer, 0, count)
-                    }
-                }
-            }
-            out.takeIf { it.exists() && it.length() > 0L }
+            val count = input.use { source -> out.outputStream().use { output -> source.copyBounded(output, maxBytes, tooLarge) } }
+            if (count == 0L) { out.delete(); null } else out
         } catch (error: Throwable) {
             out.delete()
             throw error
         }
     }
+
+    private suspend fun copyVideoToCache(context: Context, uri: Uri, extension: String): File? =
+        copyToCache(context, uri, extension, "tbone_video", VIDEO_MAX_BYTES, VIDEO_TOO_BIG_MESSAGE)
 
     private suspend fun prepareImageFile(
         context: Context,
@@ -356,12 +380,13 @@ object MediaProcessor {
         compress: Boolean,
     ): File? = withContext(Dispatchers.IO) {
         runCatching {
-            val src = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: return@runCatching null
             val orientation = readExifOrientation(context, uri)
-
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(src, 0, src.size, bounds)
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, bounds)
+                Unit
+            } ?: return@runCatching null
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
 
             var sample = 1
             while (bounds.outWidth / sample > MAX_IMAGE_DIMENSION ||
@@ -369,46 +394,61 @@ object MediaProcessor {
             ) sample *= 2
 
             val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-            var bmp = BitmapFactory.decodeByteArray(src, 0, src.size, opts) ?: return@runCatching null
-            bmp = applyOrientation(bmp, orientation)
+            var bmp = context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, opts)
+            } ?: return@runCatching null
+            var out: File? = null
+            try {
+                bmp = applyOrientation(bmp, orientation)
+                val result = File.createTempFile("tbone_media_", ".jpg", context.cacheDir)
+                out = result
+                var quality = if (compress) 88 else 100
 
-            val out = File(context.cacheDir, "tbone_media_${System.currentTimeMillis()}.jpg")
-            var quality = if (compress) 88 else 100
-            val targetBytes: Long? = maxBytes
-
-            // Compress loop: lower quality until under the cap (or min quality).
-            while (true) {
-                FileOutputStream(out).use { fos ->
-                    bmp.compress(Bitmap.CompressFormat.JPEG, quality, fos)
-                }
-                val size = out.length()
-                if (targetBytes == null || size <= targetBytes || quality <= 55) break
-                quality -= 8
-            }
-            if (out.length() > (maxBytes ?: Long.MAX_VALUE)) {
-                // Still too big at min quality — downscale and retry.
-                var maxDim = 1600
-                while (maxDim >= 400) {
-                    val scale = maxDim.toFloat() / maxOf(bmp.width, bmp.height)
-                    val scaled = Bitmap.createScaledBitmap(
-                        bmp, (bmp.width * scale).toInt().coerceAtLeast(1),
-                        (bmp.height * scale).toInt().coerceAtLeast(1), true,
-                    )
-                    FileOutputStream(out).use { fos ->
-                        scaled.compress(Bitmap.CompressFormat.JPEG, 70, fos)
+                // Compress loop: lower quality until under the cap (or min quality).
+                while (true) {
+                    FileOutputStream(result).use { fos ->
+                        check(bmp.compress(Bitmap.CompressFormat.JPEG, quality, fos))
                     }
-                    if (out.length() <= (maxBytes ?: Long.MAX_VALUE)) break
-                    maxDim -= 300
+                    val size = result.length()
+                    if (maxBytes == null || size <= maxBytes || quality <= 55) break
+                    quality -= 8
                 }
+                if (result.length() > (maxBytes ?: Long.MAX_VALUE)) {
+                    // Still too big at min quality — downscale and retry.
+                    var maxDim = 1600
+                    while (maxDim >= 400) {
+                        val scale = (maxDim.toFloat() / maxOf(bmp.width, bmp.height)).coerceAtMost(1f)
+                        val scaled = Bitmap.createScaledBitmap(
+                            bmp, (bmp.width * scale).toInt().coerceAtLeast(1),
+                            (bmp.height * scale).toInt().coerceAtLeast(1), true,
+                        )
+                        try {
+                            FileOutputStream(result).use { fos ->
+                                check(scaled.compress(Bitmap.CompressFormat.JPEG, 70, fos))
+                            }
+                        } finally {
+                            if (scaled !== bmp) scaled.recycle()
+                        }
+                        if (result.length() <= (maxBytes ?: Long.MAX_VALUE)) break
+                        maxDim -= 300
+                    }
+                }
+                check(result.length() > 0 && (maxBytes == null || result.length() <= maxBytes)) {
+                    "Could not fit image within the requested size"
+                }
+                result
+            } catch (failure: Throwable) {
+                out?.delete()
+                throw failure
+            } finally {
+                if (!bmp.isRecycled) bmp.recycle()
             }
-            bmp.recycle()
-            out
         }.getOrNull()
     }
 
     @OptIn(androidx.media3.common.util.UnstableApi::class)
     private suspend fun transcodeAudio(context: Context, uri: Uri): File? {
-        val out = File(context.cacheDir, "tbone_audio_comp_${System.currentTimeMillis()}.m4a")
+        val out = File(context.cacheDir, "tbone_audio_comp_${java.util.UUID.randomUUID()}.m4a")
         val edited = EditedMediaItem.Builder(MediaItem.fromUri(uri))
             .setRemoveVideo(true)
             .setRemoveAudio(false)
@@ -465,6 +505,38 @@ object MediaProcessor {
         }
     }
 
+    /** Pixel size of an image file from its header, without a full decode. */
+    private fun imageSizeOf(file: File): Pair<Int?, Int?> = runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        val w = bounds.outWidth.takeIf { it > 0 }
+        val h = bounds.outHeight.takeIf { it > 0 }
+        w to h
+    }.getOrDefault(null to null)
+
+    /** Displayed (post-rotation) pixel size of a video, or nulls if unknown. */
+    private fun videoSizeOf(context: Context, uri: Uri): Pair<Int?, Int?> = runCatching {
+        val retriever = MediaMetadataRetriever()
+        try {
+            if (uri.scheme == "file") {
+                uri.path?.let { path -> retriever.setDataSource(path) }
+            } else {
+                retriever.setDataSource(context, uri)
+            }
+            val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                ?.toIntOrNull() ?: 0
+            val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                ?.toIntOrNull() ?: 0
+            val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                ?.toIntOrNull() ?: 0
+            if (width <= 0 || height <= 0) null to null
+            else if (rotation == 90 || rotation == 270) height to width
+            else width to height
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }.getOrDefault(null to null)
+
     /** Height (as displayed, i.e. after rotation) of the source video, or 0 if unknown. */
     private fun videoHeightOf(context: Context, uri: Uri): Int = runCatching {
         val retriever = MediaMetadataRetriever()
@@ -488,24 +560,65 @@ object MediaProcessor {
         }
     }.getOrDefault(0)
 
-    private suspend fun transcodeVideo(context: Context, uri: Uri): File? {
-        val out = File(context.cacheDir, "tbone_video_comp_${System.currentTimeMillis()}.mp4")
-        val presentation = Presentation.createForHeight(VIDEO_TARGET_HEIGHT)
-        val effects = Effects(emptyList(), listOf(presentation))
-        val edited = EditedMediaItem.Builder(MediaItem.fromUri(uri))
-            .setEffects(effects)
-            .setRemoveAudio(false)
-            .build()
+    private suspend fun transcodeVideo(context: Context, uri: Uri, sourceHeight: Int): File? {
+        val out = File(context.cacheDir, "tbone_video_comp_${java.util.UUID.randomUUID()}.mp4")
+        // Downscale only — never upscale. Sources at or below the upload
+        // profile are re-encoded at their original resolution with a capped
+        // bitrate; the caller always keeps a successful result.
+        val edited = if (VideoUploadPolicy.shouldDownscale(sourceHeight)) {
+            val presentation = Presentation.createForHeight(VIDEO_TARGET_HEIGHT)
+            val effects = Effects(emptyList(), listOf(presentation))
+            EditedMediaItem.Builder(MediaItem.fromUri(uri))
+                .setEffects(effects)
+                .setRemoveAudio(false)
+                .build()
+        } else {
+            EditedMediaItem.Builder(MediaItem.fromUri(uri))
+                .setRemoveAudio(false)
+                .build()
+        }
         val sequence = EditedMediaItemSequence(edited)
         val composition = Composition.Builder(sequence).build()
+
+        // Cap the video bitrate for the output height. Without this the
+        // encoder defaults to a camera-like bitrate and the "compressed"
+        // file comes out the same size as the source (or larger).
+        val outputHeight = if (VideoUploadPolicy.shouldDownscale(sourceHeight)) {
+            VIDEO_TARGET_HEIGHT
+        } else if (sourceHeight > 0) {
+            sourceHeight
+        } else {
+            VIDEO_TARGET_HEIGHT
+        }
+        val targetVideoBitrate = when {
+            outputHeight >= 1200 -> 5_000_000
+            outputHeight >= 700 -> 3_000_000
+            outputHeight >= 400 -> 1_500_000
+            else -> 800_000
+        }
+        val defaultEncoderFactory = DefaultEncoderFactory.Builder(context).build()
+        val encoderFactory = object : Codec.EncoderFactory {
+            override fun createForAudioEncoding(inputFormat: Format): Codec =
+                defaultEncoderFactory.createForAudioEncoding(inputFormat)
+
+            override fun createForVideoEncoding(inputFormat: Format): Codec =
+                defaultEncoderFactory.createForVideoEncoding(
+                    inputFormat.buildUpon().setAverageBitrate(targetVideoBitrate).build(),
+                )
+
+            override fun audioNeedsEncoding(): Boolean = defaultEncoderFactory.audioNeedsEncoding()
+
+            override fun videoNeedsEncoding(): Boolean = true
+        }
 
         return suspendCancellableCoroutine { cont ->
             val transformer = Transformer.Builder(context)
                 .setVideoMimeType(androidx.media3.common.MimeTypes.VIDEO_H264)
                 .setAudioMimeType(androidx.media3.common.MimeTypes.AUDIO_AAC)
+                .setEncoderFactory(encoderFactory)
                 .addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                    cont.resume(out)
+                    if (cont.isActive) cont.resume(out) else out.delete()
                 }
 
                 override fun onError(
@@ -515,16 +628,17 @@ object MediaProcessor {
                 ) {
                     Timber.w(exportException, "video transcode failed")
                     out.delete()
-                    cont.resumeWithException(exportException)
+                    if (cont.isActive) cont.resumeWithException(exportException)
                 }
             })
                 .build()
             runCatching {
                 transformer.start(composition, out.absolutePath)
             }.onFailure {
-                cont.resumeWithException(it)
+                out.delete()
+                if (cont.isActive) cont.resumeWithException(it)
             }
-            cont.invokeOnCancellation { transformer.cancel() }
+            cont.invokeOnCancellation { transformer.cancel(); out.delete() }
         }
     }
 

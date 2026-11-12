@@ -11,7 +11,15 @@ import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
@@ -71,6 +79,11 @@ import social.tbone.settings.LocalContentFilter
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
 import social.tbone.ui.theme.appCornerShape
+import social.tbone.ui.theme.appClip
+import social.tbone.ui.theme.engagementPressScale
+import social.tbone.ui.theme.likePopScale
+import social.tbone.ui.theme.feedCardBackground
+import social.tbone.ui.theme.showPostDividers
 import dev.youniversal.theme.YouniversalTheme
 import android.widget.Toast
 import kotlinx.coroutines.CancellationException
@@ -136,23 +149,40 @@ fun NoteCard(
     if (ContentFilter.shouldHide(
             event,
             contentFilter.blockedPubkeys,
-            contentFilter.hideNsfw,
+            contentFilter.nsfwMode,
             contentFilter.hideWords,
             referencedNotes,
         )
     ) return
 
+    // Content-warning veil: in COVER mode a labelled note stays in the
+    // timeline behind a tap-to-reveal cover (text and media alike).
+    var cwRevealed by remember(event.id) { mutableStateOf(false) }
+    if (ContentFilter.shouldVeil(event, contentFilter.nsfwMode) && !cwRevealed) {
+        ContentWarningVeil(
+            reason = ContentFilter.contentWarningReason(event),
+            authorLabel = profile?.bestName ?: event.pubkey.phraseHandle(),
+            onReveal = { cwRevealed = true },
+            modifier = modifier,
+        )
+        return
+    }
+
     val youniversal = YouniversalTheme.enabled
     val cardBg = when {
         highlighted -> BonyColors.AccentBg
-        youniversal -> BonyColors.Surface
+        youniversal -> feedCardBackground()
         else -> BonyColors.Bg
     }
     val cardShape = appCornerShape(MaterialTheme.shapes.medium, RectangleShape)
     // The classic feed remains edge-to-edge and square. Youniversal turns each
-    // note into a softly inset, adjustable-radius surface for clearer grouping.
+    // note into a softly inset, adjustable-radius surface for clearer grouping,
+    // with a small vertical gap so cards float instead of tiling.
     val cardContainerModifier = if (youniversal) {
-        Modifier.padding(horizontal = 8.dp).clip(cardShape).background(cardBg, cardShape)
+        Modifier
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .clip(cardShape)
+            .background(cardBg, cardShape)
     } else {
         Modifier.background(cardBg)
     }
@@ -235,7 +265,7 @@ fun NoteCard(
             }
         }
         // Hairline bottom border
-        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
+        PostCardDivider()
         return
     }
 
@@ -267,7 +297,7 @@ fun NoteCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         val name = profile?.bestName
                         if (name != null) {
-                            Text(name, style = BonyType.bodyDim.copy(color = BonyColors.Text), maxLines = 1)
+                            Text(name, style = BonyType.name.copy(color = BonyColors.Text), maxLines = 1)
                             Text(" · ", style = BonyType.metaDim.copy(color = BonyColors.TextMute))
                         }
                         Text(
@@ -339,14 +369,16 @@ fun NoteCard(
                 repliedByMe = repliedByMe,
             )
         }
-        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
+        PostCardDivider()
         return
     }
 
     // ── Kind-1 text note ─────────────────────────────────────────────────────
     val hasQuote = event.parsedTags.quotedEventId != null
         || extractInlineQuoteId(event.content) != null
-    val parsed = remember(event.id) { parseNoteContent(event.content, profiles) }
+    // Event-aware parse: carries NIP-92 imeta display hints (size, blurred
+    // preview, video poster) into the media items, not just their URLs.
+    val parsed = remember(event.id) { parseEventContent(event) }
     // When a quote is present, drop its raw nostr:nevent1…/note1… URI from the
     // body — the quoted note is rendered as a card below, so the URI must
     // never appear as a fake "nevent" link inside the text.
@@ -416,7 +448,7 @@ fun NoteCard(
                         if (name != null) {
                             Text(
                                 text = name,
-                                style = BonyType.bodyDim.copy(color = BonyColors.Text),
+                                style = BonyType.name.copy(color = BonyColors.Text),
                                 maxLines = 1,
                             )
                             Text(
@@ -523,7 +555,15 @@ fun NoteCard(
         }
     }
 
-    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
+    PostCardDivider()
+}
+
+/** Between-posts hairline: hidden under Youniversal cards, kept at High contrast. */
+@Composable
+private fun PostCardDivider() {
+    if (showPostDividers(YouniversalTheme.enabled, YouniversalTheme.contrast)) {
+        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
+    }
 }
 
 // ── Quoted / nested card ─────────────────────────────────────────────────────
@@ -604,7 +644,7 @@ fun QuotedNoteCard(
     if (ContentFilter.shouldHide(
             event,
             contentFilter.blockedPubkeys,
-            contentFilter.hideNsfw,
+            contentFilter.nsfwMode,
             contentFilter.hideWords,
             quotedEvents,
         )
@@ -613,6 +653,16 @@ fun QuotedNoteCard(
             text = "quoted note hidden by your content filters",
             style = BonyType.meta.copy(color = BonyColors.TextMute),
             modifier = modifier.fillMaxWidth().padding(8.dp),
+        )
+        return
+    }
+
+    var quotedCwRevealed by remember(event.id) { mutableStateOf(false) }
+    if (ContentFilter.shouldVeil(event, contentFilter.nsfwMode) && !quotedCwRevealed) {
+        QuotedContentWarningVeil(
+            reason = ContentFilter.contentWarningReason(event),
+            onReveal = { quotedCwRevealed = true },
+            modifier = modifier,
         )
         return
     }
@@ -738,6 +788,62 @@ fun QuotedNoteCard(
                 quoteAncestors = quoteAncestors + event.id,
             )
         }
+    }
+}
+
+@Composable
+private fun ContentWarningVeil(
+    reason: String?,
+    authorLabel: String,
+    onReveal: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(BonyColors.Bg)
+            .clickable { onReveal() }
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+    ) {
+        Text(
+            text = "⚠ sensitive content",
+            style = BonyType.body.copy(color = BonyColors.Text),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = if (reason.isNullOrBlank()) {
+                "$authorLabel labelled this note · tap to show"
+            } else {
+                "$authorLabel labelled this note: $reason · tap to show"
+            },
+            style = BonyType.meta.copy(color = BonyColors.TextMute),
+        )
+    }
+    PostCardDivider()
+}
+
+@Composable
+private fun QuotedContentWarningVeil(
+    reason: String?,
+    onReveal: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, BonyColors.Rule)
+            .background(BonyColors.SurfaceAlt)
+            .clickable { onReveal() }
+            .padding(10.dp),
+    ) {
+        Text(
+            text = "⚠ sensitive content",
+            style = BonyType.meta.copy(color = BonyColors.Text),
+        )
+        Text(
+            text = if (reason.isNullOrBlank()) "tap to show" else "$reason · tap to show",
+            style = BonyType.metaDim.copy(color = BonyColors.TextMute),
+        )
     }
 }
 
@@ -1006,13 +1112,53 @@ private fun LikeButton(
         }
     }
 
-    Box {
+    // Acknowledge a fresh like with a tiny pop; arriving at an already-liked
+    // note (scroll-in) must not pop — only the false -> true edge triggers it.
+    var likePopActive by remember { mutableStateOf(false) }
+    val wasLikedBefore = remember { mutableStateOf(hasReacted) }
+    LaunchedEffect(hasReacted) {
+        if (hasReacted && !wasLikedBefore.value) {
+            likePopActive = true
+            delay(120)
+            likePopActive = false
+        }
+        wasLikedBefore.value = hasReacted
+    }
+    val likePop by animateFloatAsState(
+        targetValue = likePopScale(likePopActive),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "likePop",
+    )
+    val likeInteraction = remember { MutableInteractionSource() }
+    val likePressed by likeInteraction.collectIsPressedAsState()
+    val likePress by animateFloatAsState(
+        targetValue = engagementPressScale(likePressed),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "likePress",
+    )
+
+    Box(
+        modifier = Modifier.graphicsLayer {
+            scaleX = likePop * likePress
+            scaleY = likePop * likePress
+        },
+    ) {
         if (myEmoji != null) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .clip(RectangleShape)
-                    .clickable(onClick = onClick)
+                    .appClip(MaterialTheme.shapes.small)
+                    .clickable(
+                        interactionSource = likeInteraction,
+                        indication = LocalIndication.current,
+                        onClick = onClick,
+                    )
                     .padding(horizontal = 8.dp, vertical = 8.dp),
             ) {
                 Box(modifier = Modifier.size(20.dp), contentAlignment = Alignment.Center) {
@@ -1025,7 +1171,7 @@ private fun LikeButton(
                 Spacer(Modifier.width(4.dp))
                 Text(
                     text = likeCount.toString(),
-                    style = BonyType.metaDim.copy(color = BonyColors.Accent),
+                    style = BonyType.count.copy(color = BonyColors.Accent),
                 )
             }
         } else {
@@ -1064,11 +1210,26 @@ private fun EngagementButton(
     tint: Color,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = engagementPressScale(pressed),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "engagementPress",
+    )
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .clip(RectangleShape)
-            .clickable(onClick = onClick)
+            .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
+            .appClip(MaterialTheme.shapes.small)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onClick,
+            )
             .semantics {
                 this.contentDescription = contentDescription
                 role = Role.Button
@@ -1088,7 +1249,7 @@ private fun EngagementButton(
             Spacer(Modifier.width(4.dp))
             Text(
                 text = count.toString(),
-                style = BonyType.metaDim.copy(color = tint),
+                style = BonyType.count.copy(color = tint),
             )
         }
     }

@@ -21,6 +21,8 @@ import javax.inject.Qualifier
 import social.tbone.account.AccountRepository
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
@@ -49,6 +51,7 @@ object NetworkModule {
     ): RelayPool {
         val pool = createPool(scope, appSettings, context)
         scope.launch {
+            appSettings.initialized.first { it }
             accountRepository.activeAccount.map { it?.effectiveRelays().orEmpty() }
                 .distinctUntilChanged().collect { pool.setPersonalRelays(it) }
         }
@@ -65,31 +68,48 @@ object NetworkModule {
         val pool = RelayPool(
             scope = scope,
             connectionFactory = { url ->
-                RelayConnection(
-                    url,
-                    RelayConnection.buildClient(
-                        useTor = appSettings.torEnabled.value,
-                        bypassProxy = RelayConnection.isLocalRelayUrl(url),
-                    ),
-                )
+                val tor = startupRequiresTor(appSettings.initialized.value, appSettings.torEnabled.value)
+                RelayConnection(url, RelayConnection.buildClient(
+                    useTor = tor,
+                    bypassProxy = RelayConnection.isLocalRelayUrl(url),
+                )).guardedBy(TorCallPolicy.guard, tor)
             },
         )
-        // On each Tor toggle, probe the reachable Orbot proxy (HTTP CONNECT preferred
-        // over SOCKS to avoid the local DNS leak) and reconnect all relays.
+        // Android 8 (API 26) Fix: startup Tor-guard race.
+        //
+        // Settings are read asynchronously, so on a slow API 26 device the first
+        // collector can observe torEnabled=false while `initialized` is still
+        // false. Collecting the two flows independently meant the pool could be
+        // rebuilt for "no Tor" during that window. Combining them means a
+        // transport change is only ever applied once settings are known, and the
+        // first emission after load is correct by construction.
+        //
+        // Note: this deliberately does NOT block inside a @Provides function
+        // (`initialized.first()`), which would deadlock Hilt's single-threaded
+        // synchronous injection by blocking the thread that loads the settings.
         scope.launch {
-            appSettings.torEnabled.collect { useTor ->
-                val status = if (useTor) OrbotHelper.getStatus(context) else null
-                val connected = status as? OrbotStatus.InstalledAndConnected
-                pool.updateTransportFactory { url ->
-                    RelayConnection.buildClient(
-                        useTor = useTor,
-                        proxyType = connected?.proxyType ?: java.net.Proxy.Type.HTTP,
-                        torPort = connected?.port ?: 8118,
-                        bypassProxy = RelayConnection.isLocalRelayUrl(url),
-                    )
+            combine(appSettings.initialized, appSettings.torEnabled) { ready, tor -> ready to tor }
+                .distinctUntilChanged()
+                .collect { (ready, useTor) ->
+                    // Before settings load the factory already fails closed to Tor
+                    // (startupRequiresTor), so never rebuild from a stale value.
+                    if (!ready) return@collect
+                    val status = if (useTor) OrbotHelper.getStatus(context) else null
+                    val connected = status as? OrbotStatus.InstalledAndConnected
+                    pool.updateConnectionFactory { url ->
+                        RelayConnection(url, RelayConnection.buildClient(
+                            useTor = useTor,
+                            proxyType = connected?.proxyType ?: java.net.Proxy.Type.HTTP,
+                            torPort = connected?.port ?: 8118,
+                            bypassProxy = RelayConnection.isLocalRelayUrl(url),
+                        )).guardedBy(TorCallPolicy.guard, useTor)
+                    }
                 }
-            }
         }
         return pool
     }
 }
+
+/** Unknown persisted transport mode is treated as Tor until settings load. */
+internal fun startupRequiresTor(settingsReady: Boolean, torEnabled: Boolean): Boolean =
+    !settingsReady || torEnabled

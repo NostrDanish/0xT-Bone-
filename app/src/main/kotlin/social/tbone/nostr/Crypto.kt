@@ -3,10 +3,8 @@ package social.tbone.nostr
 import org.bouncycastle.asn1.sec.SECNamedCurves
 import org.bouncycastle.crypto.params.ECDomainParameters
 import org.bouncycastle.crypto.params.ECPublicKeyParameters
-import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.bouncycastle.math.ec.ECPoint
 import java.math.BigInteger
-import java.security.Security
 
 /**
  * BIP-340 Schnorr signature verification over secp256k1.
@@ -18,8 +16,22 @@ import java.security.Security
 object Crypto {
 
     private val secp256k1 by lazy {
-        if (Security.getProvider("BC") == null) Security.addProvider(BouncyCastleProvider())
-        val params = SECNamedCurves.getByName("secp256k1")
+        // No JCA provider is registered or required here. Everything below
+        // (SECNamedCurves / ECDomainParameters / ECPoint) is BouncyCastle's
+        // lightweight API and resolves the curve itself, and taggedHash() uses
+        // the platform's own SHA-256.
+        //
+        // This is the real Android 8 (API 26) fix for the "BouncyCastle provider
+        // collision": the old code called Security.addProvider(BouncyCastleProvider())
+        // and keyed off Security.getProvider("BC"), but Android ships its own
+        // legacy "BC" provider, so that call can no-op or throw. Verification
+        // never needed the provider, so not touching it removes the failure mode
+        // instead of papering over it. (Note BouncyCastleProvider is `final` in
+        // bcprov 1.78.1, so it cannot be subclassed to register under a
+        // different name either.)
+        val params = requireNotNull(SECNamedCurves.getByName("secp256k1")) {
+            "secp256k1 curve unavailable"
+        }
         ECDomainParameters(params.curve, params.g, params.n, params.h)
     }
 

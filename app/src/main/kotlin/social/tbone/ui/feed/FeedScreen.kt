@@ -74,6 +74,7 @@ import dev.youniversal.theme.YouniversalTheme
 import kotlinx.coroutines.delay
 import social.tbone.nostr.Event
 import social.tbone.nostr.quotedEventId
+import social.tbone.settings.HideReason
 import social.tbone.nostr.relay.RelayStatus
 import social.tbone.ui.components.AccountSwitcherSheet
 import social.tbone.ui.components.BonyBottomBar
@@ -82,7 +83,9 @@ import social.tbone.ui.components.RelayHealthDot
 import social.tbone.ui.components.BottomTab
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import dev.youniversal.theme.YouniversalEmptyState
 import social.tbone.ui.theme.appCornerShape
+import social.tbone.ui.theme.feedPageBackground
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -160,11 +163,14 @@ fun FeedScreen(
             }
         }
     }
-    LaunchedEffect(pendingEventScroll, uiState.events) {
+    LaunchedEffect(pendingEventScroll, uiState.feedItems) {
         val eventId = pendingEventScroll ?: return@LaunchedEffect
-        val index = uiState.events.indexOfFirst { it.id == eventId }
+        val index = uiState.feedItems.indexOfFirst {
+            it is FeedListItem.Note && it.event.id == eventId
+        }
         if (index >= 0) {
-            listState.animateScrollToItem(index + 1) // index 0 is the geohash strip
+            // +1 geohash strip, +1 hidden-count header when present.
+            listState.animateScrollToItem(index + 1 + if (uiState.hiddenCount > 0) 1 else 0)
             viewModel.consumePendingEventScroll(eventId)
         }
     }
@@ -178,7 +184,7 @@ fun FeedScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(BonyColors.Bg),
+            .background(feedPageBackground()),
     ) {
         // ── Top bar ───────────────────────────────────────────────────────────
         // Relay statuses and tor state are collected inside FeedTopBar so their
@@ -293,8 +299,8 @@ fun FeedScreen(
                             text = "${globalAutoLoadInterval} min  ▾",
                             style = BonyType.tag.copy(color = BonyColors.Accent),
                             modifier = Modifier
-                                .background(BonyColors.Bg, RoundedCornerShape(16.dp))
-                                .border(1.dp, BonyColors.RuleStrong, RoundedCornerShape(16.dp))
+                                .background(BonyColors.Bg, appCornerShape(MaterialTheme.shapes.medium, RoundedCornerShape(16.dp)))
+                                .border(1.dp, BonyColors.RuleStrong, appCornerShape(MaterialTheme.shapes.medium, RoundedCornerShape(16.dp)))
                                 .clickable { showGlobalIntervalMenu = true }
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                         )
@@ -350,6 +356,22 @@ fun FeedScreen(
                 }
                 uiState.events.isEmpty() && !isRefreshing -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        if (YouniversalTheme.enabled) {
+                            // Kit empty state: designed, centered, on-palette.
+                            YouniversalEmptyState(
+                                title = when (currentFeed) {
+                                    FeedTab.CLOCK -> "nothing in this window"
+                                    FeedTab.SUGGESTED -> "no notes from these accounts"
+                                    else -> "no notes yet"
+                                },
+                                description = if (currentFeed == FeedTab.SUGGESTED) {
+                                    "─── the end · pull to refresh ───"
+                                } else {
+                                    null
+                                },
+                            )
+                            return@Box
+                        }
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 text = when (currentFeed) {
@@ -418,7 +440,27 @@ fun FeedScreen(
                                 onOpenGeohash = onOpenGeohash,
                             )
                         }
-                        items(uiState.events, key = { it.id }) { event ->
+                        if (uiState.hiddenCount > 0) {
+                            item(key = "hidden_summary") {
+                                Text(
+                                    text = "${uiState.hiddenCount} post${if (uiState.hiddenCount == 1) "" else "s"} hidden by your filters · tap to review filters",
+                                    style = BonyType.meta.copy(color = BonyColors.TextMute),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onSettingsClick() }
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                )
+                                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
+                            }
+                        }
+                        items(uiState.feedItems, key = { it.key }) { row ->
+                          when (row) {
+                            is FeedListItem.HiddenGroup -> HiddenGroupRow(
+                                group = row,
+                                profiles = profiles,
+                            )
+                            is FeedListItem.Note -> {
+                            val event = row.event
                             val refId = remember(event.id) {
                                 when (event.kind) {
                                     social.tbone.nostr.EventKind.REPOST ->
@@ -455,6 +497,8 @@ fun FeedScreen(
                                 quotedEvents = quotedEvents,
                                 quotedEventId = refId,
                             )
+                            }
+                          }
                         }
                         item(key = "feed_paging") {
                             if (currentFeed == FeedTab.SUGGESTED) {
@@ -724,10 +768,13 @@ private fun FeedTabStrip(
     val tabLabelSize = (labelDp / effectiveFontScale).sp
     val tabLetterSpacing = (0.2f / effectiveFontScale).sp
 
-    Box(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // Inset so the active tab's rounded border is not clipped by the
+                // screen edge and is not overdrawn by the hairline below.
+                .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
                 .background(BonyColors.Surface),
         ) {
             FeedTab.values().forEach { tab ->
@@ -783,13 +830,13 @@ private fun FeedTabStrip(
                 }
             }
         }
-        // Full-width bottom hairline
+        // Full-width bottom hairline, now below the outer padding instead of
+        // overlapping the active tab's border.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(BonyColors.Rule)
-                .align(Alignment.BottomCenter),
+                .background(BonyColors.Rule),
         )
     }
 }
@@ -923,4 +970,41 @@ private fun clockTimeLabel(anchorSeconds: Long): String {
     val h = cal.get(java.util.Calendar.HOUR_OF_DAY)
     val m = cal.get(java.util.Calendar.MINUTE)
     return "%02d:%02d".format(h, m)
+}
+
+/** Collapsed marker for a run of notes removed by the content filters. */
+@Composable
+private fun HiddenGroupRow(
+    group: FeedListItem.HiddenGroup,
+    profiles: Map<String, social.tbone.nostr.ProfileContent?>,
+) {
+    var expanded by remember(group.key) { mutableStateOf(false) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(BonyColors.Bg)
+            .clickable { expanded = !expanded }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        Text(
+            text = "${if (expanded) "▾" else "▸"} ${group.entries.size} post${if (group.entries.size == 1) "" else "s"} hidden by your filters",
+            style = BonyType.meta.copy(color = BonyColors.TextMute),
+        )
+        if (expanded) {
+            group.entries.forEach { entry ->
+                val author = profiles[entry.pubkey]?.bestName ?: "unknown author"
+                val reason = when (val r = entry.reason) {
+                    HideReason.BlockedAuthor -> "blocked author"
+                    is HideReason.HideWord -> "hide word '${r.word}'"
+                    HideReason.ContentWarning -> "content warning (hide mode)"
+                }
+                Text(
+                    text = "hidden · $author · $reason",
+                    style = BonyType.metaDim.copy(color = BonyColors.TextMute),
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        }
+    }
+    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
 }

@@ -22,6 +22,9 @@ import social.tbone.lists.RelayListFetcher
 import social.tbone.nostr.EventKind
 import social.tbone.security.AppLockManager
 import social.tbone.settings.AppSettings
+import social.tbone.settings.FilterWord
+import social.tbone.settings.NsfwMode
+import social.tbone.settings.WordMatchMode
 import social.tbone.settings.AvatarMode
 import social.tbone.settings.ImageLoadMode
 import social.tbone.settings.VideoPlaybackMode
@@ -45,12 +48,16 @@ class SettingsViewModel @Inject constructor(
     private val offlineLists: social.tbone.lists.OfflineListRepository,
     private val updateManager: UpdateManager,
     private val stealthManager: StealthManager,
+    private val legacyCleanup: social.tbone.migration.LegacyMiniAppCleanup,
     @ApplicationContext context: Context,
 ) : ViewModel() {
 
     /** Whether the active account's offline follow list / block list is switched on. */
     val offlineFollowsEnabled: StateFlow<Boolean> = offlineEnabledFlow(social.tbone.lists.ListType.FOLLOWS)
     val offlineMutesEnabled: StateFlow<Boolean> = offlineEnabledFlow(social.tbone.lists.ListType.MUTES)
+
+    val cleanupStatus = legacyCleanup.status
+    fun retryLegacyCleanup() = legacyCleanup.retry()
 
     val updateState: StateFlow<UpdateState> = updateManager.state
 
@@ -113,6 +120,7 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VideoPlaybackMode.PLAY_ON_TAP)
 
     val videoThumbnails: StateFlow<Boolean> = appSettings.videoThumbnails
+    val mediaFittedLayout: StateFlow<Boolean> = appSettings.mediaFittedLayout
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
     val imageCacheLightweight: StateFlow<Boolean> = appSettings.imageCacheLightweight
@@ -134,9 +142,9 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiTheme.BONY)
 
     // ── content filters ─────────────────────────────────────────────────────
-    val hideNsfw: StateFlow<Boolean> = appSettings.hideNsfw
-    val bleepWords: StateFlow<Set<String>> = appSettings.bleepWords
-    val hideWords: StateFlow<Set<String>> = appSettings.hideWords
+    val nsfwMode: StateFlow<NsfwMode> = appSettings.nsfwMode
+    val bleepWords: StateFlow<Set<FilterWord>> = appSettings.bleepWords
+    val hideWords: StateFlow<Set<FilterWord>> = appSettings.hideWords
 
     // ── blossom media uploads ────────────────────────────────────────────────
     val blossomServers: StateFlow<Set<String>> = appSettings.blossomServers
@@ -304,20 +312,28 @@ class SettingsViewModel @Inject constructor(
 
 
 
-    fun toggleHideNsfw() {
-        viewModelScope.launch { appSettings.setHideNsfw(!appSettings.hideNsfw.value) }
+    fun setNsfwMode(mode: NsfwMode) {
+        viewModelScope.launch { appSettings.setNsfwMode(mode) }
     }
-    fun addBleepWord(word: String) {
-        viewModelScope.launch { appSettings.addBleepWord(word) }
+    fun addBleepWord(word: String, mode: WordMatchMode = WordMatchMode.WHOLE_WORD) {
+        viewModelScope.launch { appSettings.addBleepWord(word, mode) }
     }
-    fun removeBleepWord(word: String) {
+    fun removeBleepWord(word: FilterWord) {
         viewModelScope.launch { appSettings.removeBleepWord(word) }
     }
-    fun addHideWord(word: String) {
-        viewModelScope.launch { appSettings.addHideWord(word) }
+    fun toggleBleepWordMode(word: FilterWord) {
+        val next = if (word.mode == WordMatchMode.WHOLE_WORD) WordMatchMode.ANYWHERE else WordMatchMode.WHOLE_WORD
+        viewModelScope.launch { appSettings.setBleepWordMode(word, next) }
     }
-    fun removeHideWord(word: String) {
+    fun addHideWord(word: String, mode: WordMatchMode = WordMatchMode.WHOLE_WORD) {
+        viewModelScope.launch { appSettings.addHideWord(word, mode) }
+    }
+    fun removeHideWord(word: FilterWord) {
         viewModelScope.launch { appSettings.removeHideWord(word) }
+    }
+    fun toggleHideWordMode(word: FilterWord) {
+        val next = if (word.mode == WordMatchMode.WHOLE_WORD) WordMatchMode.ANYWHERE else WordMatchMode.WHOLE_WORD
+        viewModelScope.launch { appSettings.setHideWordMode(word, next) }
     }
 
     /** True if Orbot is installed — checked once at construction, no async probe needed. */
@@ -345,6 +361,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setVideoThumbnails(enabled: Boolean) {
         viewModelScope.launch { appSettings.setVideoThumbnails(enabled) }
+    }
+
+    fun setMediaFittedLayout(enabled: Boolean) {
+        viewModelScope.launch { appSettings.setMediaFittedLayout(enabled) }
     }
 
     fun setImageCacheLightweight(enabled: Boolean) {
@@ -424,12 +444,15 @@ class SettingsViewModel @Inject constructor(
 
     // ── Stealth: hidden accounts ─────────────────────────────────────────────
     private val _hiddenUnlockMessage = MutableStateFlow<String?>(null)
+    private val hiddenUnlockRunning = java.util.concurrent.atomic.AtomicBoolean(false)
     val hiddenUnlockMessage: StateFlow<String?> = _hiddenUnlockMessage.asStateFlow()
 
     fun hideAccount(pubkey: String, pin: String) {
         viewModelScope.launch {
-            accountRepository.setHidden(pubkey, true, pin)
-            _hiddenUnlockMessage.value = "Account hidden — only your PIN will bring it back"
+            val ok = try { accountRepository.setHidden(pubkey, true, pin) }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { false }
+            _hiddenUnlockMessage.value = if (ok) "Account hidden — your PIN will bring it back" else "Could not hide account"
             kotlinx.coroutines.delay(2500)
             _hiddenUnlockMessage.value = null
         }
@@ -437,16 +460,27 @@ class SettingsViewModel @Inject constructor(
 
     fun unhideAccount(pubkey: String) {
         viewModelScope.launch {
-            accountRepository.setHidden(pubkey, false)
+            val ok = try { accountRepository.setHidden(pubkey, false) }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { false }
+            if (!ok) _hiddenUnlockMessage.value = "Could not unhide account"
         }
     }
 
     fun unlockHiddenAccount(pin: String) {
+        if (!hiddenUnlockRunning.compareAndSet(false, true)) return
         viewModelScope.launch {
-            val ok = accountRepository.unlockHiddenByPin(pin)
-            _hiddenUnlockMessage.value = if (ok) "Hidden account unlocked" else "Wrong PIN"
+          try {
+            val message = try {
+                if (accountRepository.unlockHiddenByPin(pin)) "Matching hidden accounts unlocked" else "Wrong PIN"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { "Could not unlock account" }
+            _hiddenUnlockMessage.value = message
             kotlinx.coroutines.delay(2000)
             _hiddenUnlockMessage.value = null
+          } finally {
+            hiddenUnlockRunning.set(false)
+          }
         }
     }
 

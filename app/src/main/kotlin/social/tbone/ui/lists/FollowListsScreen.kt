@@ -26,7 +26,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
+import dev.youniversal.theme.YouniversalSnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
@@ -161,27 +161,40 @@ fun FollowListsScreen(
                 return@Column
             }
 
-            // Tab strip
-            Row(modifier = Modifier.fillMaxWidth().background(BonyColors.Surface)) {
-                listOf(
-                    FollowListsTab.FOLLOWING to "FOLLOWING",
-                    FollowListsTab.FOLLOWERS to "FOLLOWERS",
-                    FollowListsTab.BLOCKED to "BLOCKED",
-                ).forEach { (t, label) ->
-                    val active = tab == t
-                    val shape = appCornerShape(MaterialTheme.shapes.small, RectangleShape)
-                    Box(
-                        modifier = Modifier.weight(1f).clickable { tab = t }
-                            .background(if (active) BonyColors.AccentBg else BonyColors.Surface)
-                            .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule, shape)
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(label, style = BonyType.tag.copy(color = if (active) BonyColors.Accent else BonyColors.TextMute))
+            // Tab strip — inset so the active tab's border is not clipped by the
+            // screen edge and is not overdrawn by the hairline below.
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
+                        .background(BonyColors.Surface),
+                ) {
+                    listOf(
+                        FollowListsTab.FOLLOWING to "FOLLOWING",
+                        FollowListsTab.FOLLOWERS to "FOLLOWERS",
+                        FollowListsTab.BLOCKED to "BLOCKED",
+                    ).forEach { (t, label) ->
+                        val active = tab == t
+                        val shape = appCornerShape(MaterialTheme.shapes.small, RectangleShape)
+                        Box(
+                            modifier = Modifier.weight(1f).clickable { tab = t }
+                                .background(if (active) BonyColors.AccentBg else BonyColors.Surface)
+                                .border(1.dp, if (active) BonyColors.Accent else BonyColors.Rule, shape)
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(label, style = BonyType.tag.copy(color = if (active) BonyColors.Accent else BonyColors.TextMute))
+                        }
                     }
                 }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(BonyColors.Rule),
+                )
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
 
             when (tab) {
                 FollowListsTab.FOLLOWING -> FollowingTab(
@@ -230,7 +243,7 @@ fun FollowListsScreen(
             }
         }
 
-        SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
+        YouniversalSnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
 
         // Followers disclaimer one-time popup
         if (showFollowersDisclaimer) {
@@ -248,7 +261,7 @@ fun FollowListsScreen(
                     Text(
                         "Follower list on Nostr is decentralized — relays don't reliably know who follows who. " +
                         "When you turn this on, T-Bone will ask Primal's centralized cache (relay.primal.net + cache2.primal.net) for your followers.\n\n" +
-                        "Primal sees your pubkey when you use this, just like any relay. No additional tracking. You can turn it off anytime.",
+                        "Primal and queried relays receive your pubkey and may log requests. You can turn this feature off anytime.",
                         style = BonyType.meta.copy(color = BonyColors.TextDim)
                     )
                 },
@@ -461,9 +474,9 @@ private fun FollowersTab(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("followers (Primal cache)", style = BonyType.body.copy(color = BonyColors.Text))
+                        Text("followers (sample)", style = BonyType.body.copy(color = BonyColors.Text))
                         Text(
-                            if (followersEnabled) "on · from relay.primal.net + counting relays" else "off · tap to enable",
+                            if (followersEnabled) "on · Primal and relay samples" else "off · tap to enable",
                             style = BonyType.meta.copy(color = if (followersEnabled) BonyColors.Accent else BonyColors.TextMute)
                         )
                     }
@@ -471,14 +484,14 @@ private fun FollowersTab(
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Off by default. When on, T-Bone asks Primal's centralized cache for who follows you (cached 5 min). The list may be incomplete; relays are the lower bound.",
+                    "Off by default. When on, T-Bone asks Primal and relays for follower samples (cached up to 5 minutes). Results are bounded, may be incomplete or outdated, and are not an exact follower count.",
                     style = BonyType.metaDim.copy(color = BonyColors.TextMute)
                 )
                 if (followersEnabled) {
                     Spacer(Modifier.height(10.dp))
                     BonyButton(label = "↻ REFRESH FOLLOWERS", primary = false, enabled = !followersBusy, onClick = { viewModel.refreshFollowers() }, modifier = Modifier.fillMaxWidth())
-                    if (followersState?.source != null) {
-                        Text("source: ${followersState.source} · ${followersState.followers?.size ?: 0} followers", style = BonyType.metaDim.copy(color = BonyColors.TextMute), modifier = Modifier.padding(top = 6.dp))
+                    if (followersState?.followers != null) {
+                        Text("source: ${followersState.source} · ${followersState.followers?.size ?: 0} found (incomplete, may be outdated)", style = BonyType.metaDim.copy(color = BonyColors.TextMute), modifier = Modifier.padding(top = 6.dp))
                     }
                 }
             }

@@ -1,6 +1,9 @@
 package social.tbone.ui.theme
 
 import androidx.compose.material3.ColorScheme
+import dev.youniversal.theme.YouniversalContrast
+import dev.youniversal.theme.YouniversalMotion
+import dev.youniversal.theme.YouniversalTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -10,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.Font
@@ -58,6 +62,15 @@ object BonyColors {
     var Link by mutableStateOf(Color(0xFF82C8FF))
         private set
 
+    /**
+     * Greentext colour for lines starting with `>`. Bright matrix green on
+     * dark backgrounds; a deeper green on light/cream backgrounds so the
+     * text stays readable. Updated with the palette in [applyMode] and
+     * [applyYouniversal].
+     */
+    var GreenText by mutableStateOf(Color(0xFF33FF66))
+        private set
+
     /** The accent color — green by default, user-customizable via Settings. */
     var Accent by mutableStateOf(Color(0xFF7FDE6B))
         private set
@@ -88,6 +101,7 @@ object BonyColors {
                 WarnBg = Color(0x14E89A4A)
                 Danger = Color(0xFFC74B3D)
                 Link = Color(0xFF1E6FB8)
+                GreenText = Color(0xFF1B7A2E)
             }
             ThemeMode.DARK -> {
                 Bg = Color(0xFF0A0A0A)
@@ -103,6 +117,7 @@ object BonyColors {
                 WarnBg = Color(0x0FE89A4A)
                 Danger = Color(0xFFD96A5A)
                 Link = Color(0xFF82C8FF)
+                GreenText = Color(0xFF33FF66)
             }
             ThemeMode.CREAM -> {
                 // Dimmed warm cream — an old book page, muted several steps
@@ -120,6 +135,7 @@ object BonyColors {
                 WarnBg = Color(0x14A8641B)
                 Danger = Color(0xFFB23A2C)
                 Link = Color(0xFF1E63A5)
+                GreenText = Color(0xFF1E7A34)
             }
         }
     }
@@ -132,14 +148,18 @@ object BonyColors {
     /** Mirrors a Material3 [ColorScheme] (e.g. Youniversal) into the Bony palette so legacy screens
      *  that read `BonyColors.*` still look correct when the Youniversal engine is active. */
     fun applyYouniversal(scheme: ColorScheme) {
-        Bg = scheme.background
-        Surface = scheme.surface
+        // The kit paints background and surface identically, which leaves every
+        // Surface element (toolbars, strips, cards) invisible against its page.
+        // Classic semantics: the page is the deeper tone, surfaces lift off it.
+        val isDark = scheme.background.luminance() < 0.5f
+        Bg = feedPageColor(scheme, isDark)
+        Surface = feedCardColor(scheme, isDark)
         SurfaceAlt = scheme.surfaceContainer
         Rule = scheme.outlineVariant
         RuleStrong = scheme.outline
         Text = scheme.onBackground
         TextDim = scheme.onSurfaceVariant
-        TextMute = scheme.onSurfaceVariant.copy(alpha = 0.6f)
+        TextMute = scheme.onSurfaceVariant.copy(alpha = 0.64f)
         // Map Youniversal primary/tertiary/error to Bony's semantic roles
         Accent = scheme.primary
         Danger = scheme.error
@@ -147,6 +167,9 @@ object BonyColors {
         Warn = scheme.tertiary
         WarnDim = scheme.onTertiaryContainer
         WarnBg = scheme.tertiaryContainer.copy(alpha = 0.12f)
+        // Matrix green only reads as greentext on dark surfaces; on light
+        // Youniversal schemes use the deep green instead.
+        GreenText = if (scheme.background.luminance() < 0.5f) Color(0xFF33FF66) else Color(0xFF1B7A2E)
     }
 }
 
@@ -186,16 +209,26 @@ object BonyType {
         size: Int,
         lineHeight: Int,
         letterSpacing: Float = 0f,
+        youniversalWeight: FontWeight? = null,
+        youniversalSize: Int? = null,
+        youniversalLineHeight: Int? = null,
     ): TextStyle {
         val customYouniversalFont = activeYouniversalFontFamily != null
+        // Reading-hierarchy roles (name/body/count) carry an explicit
+        // Youniversal ladder; everything else keeps the classic size with the
+        // legacy +2 leading bump for the taller sans metrics.
+        val resolvedWeight = if (customYouniversalFont) youniversalWeight ?: weight else weight
+        val resolvedSize = if (customYouniversalFont) youniversalSize ?: size else size
+        val resolvedLineHeight = if (customYouniversalFont) {
+            youniversalLineHeight ?: (lineHeight + 2)
+        } else {
+            lineHeight
+        }
         return TextStyle(
             fontFamily = currentFontFamily,
-            fontWeight = weight,
-            fontSize = size.sp,
-            // Nunito/system sans metrics are taller than JetBrains Mono's. The
-            // old tight mono leading clipped accents and descenders in several
-            // legacy BonyType labels when a Youniversal font was selected.
-            lineHeight = (lineHeight + if (customYouniversalFont) 2 else 0).sp,
+            fontWeight = resolvedWeight,
+            fontSize = resolvedSize.sp,
+            lineHeight = resolvedLineHeight.sp,
             letterSpacing = letterSpacing.sp,
             platformStyle = if (customYouniversalFont) PlatformTextStyle(includeFontPadding = true) else null,
         )
@@ -203,13 +236,29 @@ object BonyType {
 
     val wordmark get() = style(FontWeight.Bold, 30, 30, -1.0f)
     val title    get() = style(FontWeight.Bold, 20, 26, -0.3f)
-    val body     get() = style(FontWeight.Normal, 15, 22)
-    val bodyDim  get() = style(FontWeight.Normal, 14, 20)
+    val body     get() = style(FontWeight.Normal, 15, 22, youniversalSize = 16, youniversalLineHeight = 25)
+    val bodyDim  get() = style(FontWeight.Normal, 14, 20, youniversalSize = 15, youniversalLineHeight = 23)
     val meta     get() = style(FontWeight.Normal, 13, 18, 0.4f)
     val metaDim  get() = style(FontWeight.Normal, 12, 16, 0.4f)
     val caption  get() = style(FontWeight.Normal, 11, 14, 1.5f)
     val tag      get() = style(FontWeight.SemiBold, 11, 14, 1.0f)
     val button   get() = style(FontWeight.SemiBold, 13, 16, 1.0f)
+
+    /**
+     * Author name in a note row. Classic mode renders exactly like [bodyDim]
+     * (the historical style); Youniversal promotes it to a larger semi-bold so
+     * the eye lands on *who* first.
+     */
+    val name get() = style(
+        FontWeight.Normal, 14, 20,
+        youniversalWeight = FontWeight.SemiBold, youniversalSize = 16, youniversalLineHeight = 22,
+    )
+
+    /** Engagement counts (replies/likes). Classic equals [metaDim]; Youniversal bumps to a scannable medium weight. */
+    val count get() = style(
+        FontWeight.Normal, 12, 16, 0.4f,
+        youniversalWeight = FontWeight.Medium, youniversalSize = 13, youniversalLineHeight = 18,
+    )
 }
 
 /**
@@ -264,6 +313,63 @@ fun BonyTheme(
         content = content,
     )
 }
+
+/**
+ * Feed page/card tonal pair. Youniversal's base palette paints background and
+ * surface identically, so cards cannot lift off the page; these pick one
+ * existing tonal step for each so posts float on a slightly deeper page.
+ * Dark: deeper page / lifted cards. Light & Cream: soft grey page / bright cards.
+ */
+fun feedPageColor(scheme: ColorScheme, isDark: Boolean): Color =
+    if (isDark) scheme.surfaceContainerLowest else scheme.surfaceContainerLow
+
+fun feedCardColor(scheme: ColorScheme, isDark: Boolean): Color =
+    if (isDark) scheme.surfaceContainerLow else scheme.surfaceContainerLowest
+
+/** Hairline separators between posts: gone under Youniversal cards, kept at High contrast. */
+fun showPostDividers(youniversalEnabled: Boolean, contrast: YouniversalContrast): Boolean =
+    !youniversalEnabled || contrast == YouniversalContrast.High
+
+/** Page background for the feed — classic keeps [BonyColors.Bg] exactly. */
+@Composable
+fun feedPageBackground(): Color =
+    if (!YouniversalTheme.enabled) BonyColors.Bg
+    else feedPageColor(MaterialTheme.colorScheme, YouniversalTheme.isDark)
+
+/** Card background for feed posts — classic keeps [BonyColors.Bg] exactly. */
+@Composable
+fun feedCardBackground(): Color =
+    if (!YouniversalTheme.enabled) BonyColors.Bg
+    else feedCardColor(MaterialTheme.colorScheme, YouniversalTheme.isDark)
+
+/**
+ * Page paint for screens whose classic shell already painted the Scaffold
+ * container ([androidx.compose.material3.colorScheme].surface): Youniversal
+ * gets the deep feed page; classic keeps its exact previous container color.
+ */
+@Composable
+fun feedShellBackground(): Color =
+    if (YouniversalTheme.enabled) feedPageBackground()
+    else MaterialTheme.colorScheme.surface
+
+/** Press-feedback target scale for engagement controls (tap acknowledgement). */
+fun engagementPressScale(pressed: Boolean): Float = if (pressed) 0.92f else 1f
+
+/** Transient scale pop shown briefly when a like lands. */
+fun likePopScale(pop: Boolean): Float = if (pop) 1.15f else 1f
+
+/** Navigation motion for Youniversal; null = keep navigation-compose defaults (classic). */
+data class NavMotionSpec(val durationMs: Int, val slideFraction: Float)
+
+fun youniversalNavMotion(enabled: Boolean): NavMotionSpec? =
+    if (enabled) {
+        NavMotionSpec(
+            durationMs = YouniversalMotion.DurationFast,
+            slideFraction = 0.12f,
+        )
+    } else {
+        null
+    }
 
 /** Parses "#RRGGBB" (or "#AARRGGBB") into a Compose Color; null on garbage. */
 fun parseHexColor(hex: String?): Color? {

@@ -23,6 +23,7 @@ class GeohashMessageCache @Inject constructor(
     private val dao: GeohashMessageDao,
     private val settings: AppSettings,
     private val scope: CoroutineScope,
+    private val noteWrites: social.tbone.notes.NoteWriteCoordinator,
 ) {
     private val lock = Mutex()
     private val publicKeys = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, String>()
@@ -39,31 +40,34 @@ class GeohashMessageCache @Inject constructor(
     }
 
     fun enqueue(channel: String, msg: GeohashMessage) {
-        scope.launch(Dispatchers.IO) { save(channel, msg) }
+        // Submit immediately; the wipe barrier drains or rejects this write.
+        noteWrites.submit { save(channel, msg) }
     }
 
     suspend fun clear() = lock.withLock { dao.deleteAll() }
 
     suspend fun prune() = lock.withLock {
         try {
-            val duration = settings.geohashCacheMillis.value
+            val duration = settings.getGeohashCacheMillis()
             if (duration == 0L) dao.deleteAll()
             else dao.deleteOlderThan(System.currentTimeMillis() - duration)
         } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; Timber.e(e, "Could not prune geohash cache") }
     }
 
     suspend fun save(channel: String, msg: GeohashMessage) = lock.withLock {
-        if (settings.geohashCacheMillis.value == 0L) return@withLock
         try {
+            // A UI StateFlow can briefly replay an older preference after an
+            // edit. Never write based on that stale presentation state.
+            if (settings.getGeohashCacheMillis() == 0L) return@withLock
             dao.insert(GeohashMessageEntity(msg.id, channel, msg.pubkey, msg.createdAt,
                 msg.content, msg.nickname, msg.own, System.currentTimeMillis()))
         } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; Timber.e(e, "Could not cache geohash message") }
     }
 
     suspend fun load(channel: String): List<GeohashMessage> = lock.withLock {
-        val duration = settings.geohashCacheMillis.value
-        if (duration == 0L) return@withLock emptyList()
         try {
+            val duration = settings.getGeohashCacheMillis()
+            if (duration == 0L) return@withLock emptyList()
             dao.getForChannel(channel, System.currentTimeMillis() - duration).map {
                 GeohashMessage(it.id, it.pubkey, it.createdAt, it.content, it.nickname, it.own)
             }
@@ -71,7 +75,7 @@ class GeohashMessageCache @Inject constructor(
     }
 
     /** Match all saved channel identities: one event can carry several geohash tags. */
-    suspend fun ownPubkeys(extraCode: String): Set<String> = withContext(Dispatchers.Default) {
+    suspend fun ownPubkeys(extraCode: String): Set<String> = noteWrites.runCancellable { withContext(Dispatchers.Default) {
         val seed = settings.geohashIdentitySeed()
         val fingerprint = java.security.MessageDigest.getInstance("SHA-256").digest(seed)
             .joinToString("") { "%02x".format(it) }
@@ -81,7 +85,7 @@ class GeohashMessageCache @Inject constructor(
                 GeohashKeyDerivation.pubkeyBytesFromPrivkey(priv).joinToString("") { "%02x".format(it) }
             }
         }.toSet()
-    }
+    } }
 }
 
 /** Check all g tags, not just the first: other clients can include multiple levels. */

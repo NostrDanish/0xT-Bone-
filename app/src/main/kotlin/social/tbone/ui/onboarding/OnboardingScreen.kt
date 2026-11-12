@@ -11,14 +11,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -26,7 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.SnackbarHost
+import dev.youniversal.theme.YouniversalSnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,6 +53,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
+import dev.youniversal.theme.YouniversalButton
+import dev.youniversal.theme.YouniversalOutlinedButton
+import dev.youniversal.theme.YouniversalTheme
 import social.tbone.ui.theme.appCornerShape
 import social.tbone.updates.AmberInstallState
 
@@ -114,7 +121,7 @@ fun OnboardingScreen(
             }
         }
 
-        SnackbarHost(
+        YouniversalSnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
@@ -448,25 +455,64 @@ fun BonyButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // Compact sizing for dense rows (e.g. the profile action buttons). Defaults
+    // are the standard button metrics, so existing call sites are unchanged.
+    contentPadding: PaddingValues = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+    minHeight: Dp = 0.dp,
+    shape: Shape = appCornerShape(),
 ) {
-    val bg = if (primary) BonyColors.Accent else BonyColors.Bg
     val fg = if (primary) BonyColors.Bg else BonyColors.Text
-    val borderColor = if (primary) BonyColors.Accent else BonyColors.Rule
     val disabledAlpha = if (enabled) 1f else 0.4f
-    val shape = appCornerShape()
 
-    Box(
-        modifier = modifier
-            .clip(shape)
-            .border(1.dp, borderColor.copy(alpha = disabledAlpha), shape)
-            .background(bg.copy(alpha = disabledAlpha), shape)
-            .then(if (enabled) Modifier.clickable { onClick() } else Modifier)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center,
-    ) {
+    // The Youniversal *text* overloads do not expose contentPadding, so the kit
+    // path has to use the slot overloads to honour the compact size. Both paths
+    // therefore render the same label node.
+    val labelContent: @Composable () -> Unit = {
         Text(
             text = label,
             style = BonyType.button.copy(color = fg.copy(alpha = disabledAlpha)),
         )
+    }
+
+    if (YouniversalTheme.enabled) {
+        // Kit swap: modern filled/outlined buttons under Youniversal; classic
+        // keeps the bordered box. Same parameters, so no call site changes.
+        val sized = modifier.heightIn(min = minHeight)
+        if (primary) {
+            YouniversalButton(
+                onClick = onClick,
+                modifier = sized,
+                enabled = enabled,
+                shape = shape,
+                contentPadding = contentPadding,
+                content = { labelContent() },
+            )
+        } else {
+            YouniversalOutlinedButton(
+                onClick = onClick,
+                modifier = sized,
+                enabled = enabled,
+                shape = shape,
+                contentPadding = contentPadding,
+                content = { labelContent() },
+            )
+        }
+        return
+    }
+
+    val bg = if (primary) BonyColors.Accent else BonyColors.Bg
+    val borderColor = if (primary) BonyColors.Accent else BonyColors.Rule
+
+    Box(
+        modifier = modifier
+            .heightIn(min = minHeight)
+            .clip(shape)
+            .border(1.dp, borderColor.copy(alpha = disabledAlpha), shape)
+            .background(bg.copy(alpha = disabledAlpha), shape)
+            .then(if (enabled) Modifier.clickable { onClick() } else Modifier)
+            .padding(contentPadding),
+        contentAlignment = Alignment.Center,
+    ) {
+        labelContent()
     }
 }

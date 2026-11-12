@@ -1,5 +1,7 @@
 package social.tbone.ui.toolbox
 
+import androidx.compose.material3.MaterialTheme
+import social.tbone.ui.theme.appCornerShape
 import social.tbone.ui.theme.appBorder
 import android.Manifest
 import android.content.Intent
@@ -44,6 +46,8 @@ import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import social.tbone.media.MimeTypes
 import social.tbone.ui.components.LockBadge
 import social.tbone.ui.permissions.rememberPermissionRequester
@@ -71,7 +75,7 @@ fun VoiceRecorderScreen(
     var status by remember { mutableStateOf<String?>(null) }
 
     val recordingsDir = remember(context) {
-        File(context.filesDir, "recordings").apply { mkdirs() }
+        File(context.filesDir, "recordings")
     }
 
     // Microphone permission — asked on the first record tap, with proper
@@ -92,15 +96,14 @@ fun VoiceRecorderScreen(
         val file = state.activeFile ?: return@rememberLauncherForActivityResult
         if (uri != null) {
             scope.launch {
-                val bytes = viewModel.readBytes(file)
-                if (bytes != null) {
-                    val ok = runCatching {
-                        context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } != null
+                val ok = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { output ->
+                            file.inputStream().use { input -> input.copyTo(output) }
+                        } != null
                     }.getOrDefault(false)
-                    status = if (ok) "saved" else "save failed"
-                } else {
-                    status = "save failed"
                 }
+                status = if (ok) "saved" else "save failed"
             }
         }
     }
@@ -228,7 +231,7 @@ fun VoiceRecorderScreen(
                         Box(
                             modifier = Modifier
                                 .size(26.dp)
-                                .background(BonyColors.Danger, RoundedCornerShape(4.dp)),
+                                .background(BonyColors.Danger, appCornerShape(MaterialTheme.shapes.extraSmall, RoundedCornerShape(4.dp))),
                         )
                     }
                 }
@@ -254,7 +257,7 @@ fun VoiceRecorderScreen(
 
                 if (state.isAnonymous) {
                     LockBadge(
-                        label = "anonymized output · each re-render starts from the original recording",
+                        label = "modified output · each re-render starts from the original recording",
                         tint = BonyColors.Accent,
                         iconSize = 14.dp,
                         modifier = Modifier.padding(vertical = 8.dp),
@@ -272,13 +275,18 @@ fun VoiceRecorderScreen(
                 Spacer(Modifier.height(6.dp))
                 ActionButton(
                     label = when {
-                        state.isAnonymizing -> "◌ ANONYMIZING…"
-                        state.isAnonymous -> "◉ RE-ANONYMIZE VOICE"
-                        else -> "◉ ANONYMIZE VOICE"
+                        state.isAnonymizing -> "◌ MODIFYING VOICE…"
+                        state.isAnonymous -> "◉ RE-MODIFY VOICE"
+                        else -> "◉ MODIFY VOICE"
                     },
                     enabled = !state.isAnonymizing,
                 ) { viewModel.anonymize() }
 
+                Text(
+                    text = "Voice effects do not guarantee anonymity. Your voice or what you say may still identify you.",
+                    style = BonyType.caption.copy(color = BonyColors.TextMute),
+                    modifier = Modifier.padding(vertical = 6.dp),
+                )
                 Spacer(Modifier.height(6.dp))
                 ActionButton("↓ save to device", enabled = !state.isAnonymizing) {
                     val extension = state.activeFile?.extension?.takeIf { it.isNotBlank() } ?: "m4a"
@@ -363,7 +371,7 @@ private fun RecordControl(
                     .size(if (isRecording) 20.dp else 36.dp)
                     .background(
                         if (isRecording) BonyColors.Warn else BonyColors.Accent,
-                        if (isRecording) RoundedCornerShape(4.dp) else CircleShape,
+                        if (isRecording) appCornerShape(MaterialTheme.shapes.extraSmall, RoundedCornerShape(4.dp)) else CircleShape,
                     ),
             )
         }
@@ -426,14 +434,14 @@ private fun MiniPlayer(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(4.dp)
-                        .background(BonyColors.Rule, RoundedCornerShape(2.dp))
+                        .background(BonyColors.Rule, appCornerShape(MaterialTheme.shapes.extraSmall, RoundedCornerShape(2.dp)))
                         .align(Alignment.Center),
                 )
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(progress)
                         .height(4.dp)
-                        .background(BonyColors.Accent, RoundedCornerShape(2.dp))
+                        .background(BonyColors.Accent, appCornerShape(MaterialTheme.shapes.extraSmall, RoundedCornerShape(2.dp)))
                         .align(Alignment.Center),
                 )
             }

@@ -1,5 +1,6 @@
 package social.tbone.ui.compose
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.widthIn
@@ -27,7 +28,6 @@ import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,6 +52,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Videocam
@@ -59,7 +60,7 @@ import androidx.compose.material.icons.outlined.Audiotrack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.SnackbarHost
+import dev.youniversal.theme.YouniversalSnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
@@ -127,8 +128,11 @@ fun ComposeScreen(
     val mentionSearching by viewModel.mentionSearching.collectAsStateWithLifecycle()
 
     // ── Media pickers (Blossom uploads) ──────────────────────────────────────
+    // The document chooser lists every image the device can see — including
+    // GIFs, which the system photo picker can hide behind its visual-media
+    // filter. GIFs are uploaded byte-for-byte so the animation survives.
     val imagePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(20)
+        ActivityResultContracts.GetMultipleContents()
     ) { uris ->
         uris.forEach { viewModel.attachMedia(it, "image") }
     }
@@ -144,6 +148,12 @@ fun ComposeScreen(
     ) { uris ->
         uris.forEach { viewModel.attachMedia(it, "audio") }
     }
+    // Any file — PDF, archive, document — uploaded to Blossom unchanged.
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        uris.forEach { viewModel.attachMedia(it, "file") }
+    }
     var fieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(""))
     }
@@ -156,6 +166,13 @@ fun ComposeScreen(
             val text = source.text
             val annotated = buildAnnotatedString {
                 append(text)
+                // Greentext while writing: lines starting with `>` go green,
+                // exactly as they will render once published.
+                social.tbone.ui.feed.greentextLineRanges(text).forEach { range ->
+                    if (!range.isEmpty()) {
+                        addStyle(SpanStyle(color = BonyColors.GreenText), range.first, range.last + 1)
+                    }
+                }
                 mentionMap.keys.forEach { name ->
                     val token = "@$name"
                     var from = 0
@@ -470,6 +487,7 @@ fun ComposeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(BonyColors.Surface)
+                    .horizontalScroll(rememberScrollState())
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -478,9 +496,7 @@ fun ComposeScreen(
                     label = "image",
                     uploading = uiState.uploadingKind == "image",
                     enabled = !uiState.isUploading,
-                    onClick = {
-                        imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    },
+                    onClick = { imagePicker.launch("image/*") },
                 )
                 Spacer(Modifier.width(10.dp))
                 ComposeMediaAction(
@@ -497,6 +513,14 @@ fun ComposeScreen(
                     uploading = uiState.uploadingKind == "audio",
                     enabled = !uiState.isUploading,
                     onClick = { audioPicker.launch("audio/*") },
+                )
+                Spacer(Modifier.width(10.dp))
+                ComposeMediaAction(
+                    icon = Icons.Filled.AttachFile,
+                    label = "file",
+                    uploading = uiState.uploadingKind == "file",
+                    enabled = !uiState.isUploading,
+                    onClick = { filePicker.launch("*/*") },
                 )
                 Spacer(Modifier.width(10.dp))
                 // "@" drops a @ at the caret and pops the mention picker.
@@ -525,7 +549,7 @@ fun ComposeScreen(
             Spacer(Modifier.height(24.dp))
         }
 
-        SnackbarHost(
+        YouniversalSnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
@@ -569,9 +593,9 @@ private fun SquareUploadSpinner() {
         modifier = Modifier
             .size(15.dp)
             .graphicsLayer { rotationZ = rotation }
-            .border(1.5.dp, BonyColors.Accent, RoundedCornerShape(3.dp))
+            .border(1.5.dp, BonyColors.Accent, appCornerShape(MaterialTheme.shapes.extraSmall, RoundedCornerShape(3.dp)))
             .padding(3.dp)
-            .border(1.dp, BonyColors.AccentDim, RoundedCornerShape(1.dp)),
+            .border(1.dp, BonyColors.AccentDim, appCornerShape(MaterialTheme.shapes.extraSmall, RoundedCornerShape(1.dp))),
     )
 }
 
@@ -1050,7 +1074,7 @@ private fun NotePreviewDialog(
                             Box(
                                 modifier = Modifier
                                     .size(36.dp)
-                                    .clip(RoundedCornerShape(18.dp))
+                                    .clip(appCornerShape(MaterialTheme.shapes.medium, RoundedCornerShape(18.dp)))
                                     .background(BonyColors.SurfaceAlt),
                             )
                         }
@@ -1139,7 +1163,7 @@ private fun NotePreviewDialog(
                                         Box(
                                             modifier = Modifier
                                                 .size(10.dp)
-                                                .clip(RoundedCornerShape(5.dp))
+                                                .clip(appCornerShape(MaterialTheme.shapes.extraSmall, RoundedCornerShape(5.dp)))
                                                 .background(BonyColors.RuleStrong)
                                                 .appBorder(1.dp, BonyColors.Rule),
                                         )

@@ -10,14 +10,13 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import social.tbone.media.blossom.BlossomServerUrl
 import social.tbone.nostr.geohash.GeohashChannelEntry
 import social.tbone.nostr.geohash.GeohashChannelStore
-import social.tbone.webxdc.XdcCustomTool
-import social.tbone.webxdc.XdcCustomToolsCodec
 import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -55,6 +54,7 @@ class AppSettings @Inject constructor(
         private val VIDEO_QUALITY = stringPreferencesKey("video_quality")
         private val VIDEO_PLAYBACK_MODE = stringPreferencesKey("video_playback_mode")
         private val VIDEO_THUMBNAILS = booleanPreferencesKey("video_thumbnails")
+        private val MEDIA_FITTED_LAYOUT = booleanPreferencesKey("media_fitted_layout")
         private val IMAGE_CACHE_LIGHTWEIGHT = booleanPreferencesKey("image_cache_lightweight")
         private val AVATAR_MODE = stringPreferencesKey("avatar_mode")
         private val AVATAR_ANIMATED = booleanPreferencesKey("avatar_animated")
@@ -85,8 +85,6 @@ class AppSettings @Inject constructor(
         private val TOOLBOX_PIN_AUTO_LOCK_MINUTES = intPreferencesKey("toolbox_pin_auto_lock_minutes")
         private val TOOLBOX_PIN_LAST_UNLOCK_MILLIS = longPreferencesKey("toolbox_pin_last_unlock_millis")
         private val TOOLBOX_TOOL_ORDER = stringPreferencesKey("toolbox_tool_order")
-        // Saved webxdc mini apps promoted to toolbox tools (JSON array).
-        private val XDC_CUSTOM_TOOLS = stringPreferencesKey("xdc_custom_tools")
         // Geohash identity seed (base64, 32 bytes) — random per install, like Amethyst's remote-signer path.
         private val GEOHASH_IDENTITY_SEED = stringPreferencesKey("geohash_identity_seed")
         private val GEOHASH_CHANNELS = stringPreferencesKey("geohash_channels")
@@ -97,6 +95,7 @@ class AppSettings @Inject constructor(
         private val NOTE_MENU_MODERATION = booleanPreferencesKey("note_menu_moderation")
         private val CLIENT_TAG_ENABLED = booleanPreferencesKey("client_tag_enabled")
         private val HIDE_NSFW = booleanPreferencesKey("hide_nsfw")
+        private val NSFW_MODE = stringPreferencesKey("nsfw_mode")
         private val BLEEP_WORDS = stringSetPreferencesKey("bleep_words")
         private val HIDE_WORDS = stringSetPreferencesKey("hide_words")
         // Parental PIN: locks the content-filter settings behind a 4-digit pin
@@ -230,6 +229,10 @@ class AppSettings @Inject constructor(
     private val _videoThumbnails = MutableStateFlow(true)
     val videoThumbnails = _videoThumbnails.asStateFlow()
 
+    /** When true, inline media frames take the media's real shape instead of the fixed box. */
+    private val _mediaFittedLayout = MutableStateFlow(false)
+    val mediaFittedLayout = _mediaFittedLayout.asStateFlow()
+
     private val _imageCacheLightweight = MutableStateFlow(false)
     val imageCacheLightweight = _imageCacheLightweight.asStateFlow()
 
@@ -278,10 +281,6 @@ class AppSettings @Inject constructor(
     /** Ordered list of tool ids in the toolbox. */
     private val _toolboxToolOrder = MutableStateFlow<List<String>>(emptyList())
     val toolboxToolOrder = _toolboxToolOrder.asStateFlow()
-
-    /** User-created tools backed by saved webxdc apps. */
-    private val _xdcCustomTools = MutableStateFlow<List<XdcCustomTool>>(emptyList())
-    val xdcCustomTools = _xdcCustomTools.asStateFlow()
 
     /** Saved geohash channels (messenger contact list), in display order. */
     private val _geohashChannels = MutableStateFlow<List<GeohashChannelEntry>>(emptyList())
@@ -366,16 +365,16 @@ class AppSettings @Inject constructor(
     private val _screenTimeMinutes = MutableStateFlow(120)
     val screenTimeMinutes = _screenTimeMinutes.asStateFlow()
 
-    /** Hide notes carrying a NIP-36 content-warning ("content-warning") tag. */
-    private val _hideNsfw = MutableStateFlow(false)
-    val hideNsfw = _hideNsfw.asStateFlow()
+    /** What happens to notes carrying a NIP-36 content-warning tag. */
+    private val _nsfwMode = MutableStateFlow(NsfwMode.OFF)
+    val nsfwMode = _nsfwMode.asStateFlow()
 
-    /** Words replaced with asterisks in note text (bleep). */
-    private val _bleepWords = MutableStateFlow<Set<String>>(emptySet())
+    /** Words replaced with asterisks in note text (bleep), each with its match mode. */
+    private val _bleepWords = MutableStateFlow<Set<FilterWord>>(emptySet())
     val bleepWords = _bleepWords.asStateFlow()
 
-    /** Words that hide any note containing them. */
-    private val _hideWords = MutableStateFlow<Set<String>>(emptySet())
+    /** Words that hide any note matching them, each with its match mode. */
+    private val _hideWords = MutableStateFlow<Set<FilterWord>>(emptySet())
     val hideWords = _hideWords.asStateFlow()
 
     // Followers (centralized via Primal) — off by default, opt-in with one switch
@@ -398,11 +397,49 @@ class AppSettings @Inject constructor(
     fun setDecoyUnlocked(unlocked: Boolean) { _decoyUnlocked.value = unlocked }
 
     /** Session-only set of hidden pubkeys that have been unlocked via PIN. */
+    private val hiddenSessionLock = Any()
+    private var hiddenSessionGeneration = 0L
+    private var hiddenSessionBlocked = false
     private val _hiddenUnlockedPubkeys = MutableStateFlow<Set<String>>(emptySet())
     val hiddenUnlockedPubkeys = _hiddenUnlockedPubkeys.asStateFlow()
-    fun addHiddenUnlocked(pubkey: String) { _hiddenUnlockedPubkeys.value += pubkey }
-    fun removeHiddenUnlocked(pubkey: String) { _hiddenUnlockedPubkeys.value -= pubkey }
-    fun clearHiddenUnlocked() { _hiddenUnlockedPubkeys.value = emptySet() }
+    fun hiddenSessionEpoch(): Long = synchronized(hiddenSessionLock) {
+        if (hiddenSessionBlocked) Long.MIN_VALUE else hiddenSessionGeneration
+    }
+
+    /** Apply a whole account transition only if it began in this session. */
+    fun updateHiddenSession(epoch: Long, relock: String?, unlock: Collection<String>): Boolean = synchronized(hiddenSessionLock) {
+        if (hiddenSessionBlocked || epoch != hiddenSessionGeneration) return@synchronized false
+        _hiddenUnlockedPubkeys.update { current ->
+            (if (relock == null) current else current - relock) + unlock
+        }
+        true
+    }
+
+    fun addHiddenUnlocked(pubkey: String) {
+        val epoch = hiddenSessionEpoch()
+        updateHiddenSession(epoch, null, listOf(pubkey))
+    }
+    fun removeHiddenUnlocked(pubkey: String) {
+        val epoch = hiddenSessionEpoch()
+        updateHiddenSession(epoch, pubkey, emptyList())
+    }
+    fun clearHiddenUnlocked() = synchronized(hiddenSessionLock) {
+        hiddenSessionGeneration++
+        _hiddenUnlockedPubkeys.value = emptySet()
+    }
+
+    /** Called before the full wipe starts; late callbacks cannot reopen old sessions. */
+    fun clearSessionUnlocksForWipe() = synchronized(hiddenSessionLock) {
+        hiddenSessionBlocked = true
+        hiddenSessionGeneration++
+        _hiddenUnlockedPubkeys.value = emptySet()
+        _decoyUnlocked.value = false
+        _parentalUnlocked.value = false
+    }
+
+    fun resumeHiddenSessionsAfterWipe() = synchronized(hiddenSessionLock) {
+        hiddenSessionBlocked = false
+    }
 
     init {
         scope.launch {
@@ -410,7 +447,10 @@ class AppSettings @Inject constructor(
             dataStore.data.collect { prefs ->
                 _confirmExternalLinks.value = prefs[CONFIRM_LINKS] ?: false
                 _torExplicitlySet.value = prefs[TOR_EXPLICITLY_SET] == true
-                _torEnabled.value = prefs[TOR_ENABLED] ?: false
+                val torMode = prefs[TOR_ENABLED] ?: false
+                // Cancel old-mode tracked calls before publishing the new mode.
+                social.tbone.di.TorCallPolicy.guard.update(torMode)
+                _torEnabled.value = torMode
                 _torKillSwitch.value = prefs[TOR_KILL_SWITCH] ?: false
                 _lastViewedNotificationsAt.value = prefs[LAST_VIEWED_NOTIFICATIONS_AT] ?: 0L
                 _globalAutoLoadEnabled.value = prefs[GLOBAL_AUTO_LOAD_ENABLED] ?: true
@@ -425,6 +465,7 @@ class AppSettings @Inject constructor(
                 _videoQuality.value = VideoQuality.fromPref(prefs[VIDEO_QUALITY])
                 _videoPlaybackMode.value = VideoPlaybackMode.fromPref(prefs[VIDEO_PLAYBACK_MODE])
                 _videoThumbnails.value = prefs[VIDEO_THUMBNAILS] ?: true
+                _mediaFittedLayout.value = prefs[MEDIA_FITTED_LAYOUT] ?: false
                 _imageCacheLightweight.value = prefs[IMAGE_CACHE_LIGHTWEIGHT] ?: false
                 _avatarMode.value = AvatarMode.fromPref(prefs[AVATAR_MODE])
                 _avatarAnimated.value = prefs[AVATAR_ANIMATED] ?: true
@@ -442,16 +483,17 @@ class AppSettings @Inject constructor(
                 _toolboxDuressPinEnabled.value = prefs[TOOLBOX_DURESS_PIN_ENABLED] ?: false
                 _toolboxToolOrder.value = prefs[TOOLBOX_TOOL_ORDER]
                     ?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
-                _xdcCustomTools.value = XdcCustomToolsCodec.decode(prefs[XDC_CUSTOM_TOOLS])
                 _geohashChannels.value = prefs[GEOHASH_CHANNELS]?.let { GeohashChannelStore.decode(it) } ?: emptyList()
                 _geohashNickname.value = prefs[GEOHASH_NICKNAME] ?: ""
                 _geohashCacheMillis.value = prefs[GEOHASH_CACHE_MILLIS]?.takeIf { it in GEOHASH_CACHE_OPTIONS } ?: 0L
                 _blockedPubkeys.value = prefs[BLOCKED_PUBKEYS] ?: emptySet()
                 _noteMenuModerationEnabled.value = prefs[NOTE_MENU_MODERATION] ?: false
                 _clientTagEnabled.value = prefs[CLIENT_TAG_ENABLED] ?: true
-                _hideNsfw.value = prefs[HIDE_NSFW] ?: false
-                _bleepWords.value = prefs[BLEEP_WORDS] ?: emptySet()
-                _hideWords.value = prefs[HIDE_WORDS] ?: emptySet()
+                _nsfwMode.value = prefs[NSFW_MODE]?.let { stored ->
+                    runCatching { NsfwMode.valueOf(stored) }.getOrNull()
+                } ?: if (prefs[HIDE_NSFW] == true) NsfwMode.HIDE else NsfwMode.OFF
+                _bleepWords.value = (prefs[BLEEP_WORDS] ?: emptySet()).map(::decodeFilterWord).toSet()
+                _hideWords.value = (prefs[HIDE_WORDS] ?: emptySet()).map(::decodeFilterWord).toSet()
                 _followersEnabled.value = prefs[FOLLOWERS_ENABLED] ?: false
                 _followersDisclaimerShown.value = prefs[FOLLOWERS_DISCLAIMER_SHOWN] ?: false
                 _notepadFrontEnabled.value = prefs[NOTEPAD_FRONT_ENABLED] ?: false
@@ -528,6 +570,8 @@ class AppSettings @Inject constructor(
 
     suspend fun setPinEnabled(enabled: Boolean) {
         dataStore.edit { it[PIN_ENABLED] = enabled }
+        // Do not return while callers can still see a stale disabled PIN.
+        pinEnabled.first { it == enabled }
     }
 
     suspend fun setPinAutoLockMinutes(minutes: Int) {
@@ -589,6 +633,10 @@ class AppSettings @Inject constructor(
         dataStore.edit { it[VIDEO_THUMBNAILS] = enabled }
     }
 
+    suspend fun setMediaFittedLayout(enabled: Boolean) {
+        dataStore.edit { it[MEDIA_FITTED_LAYOUT] = enabled }
+    }
+
     suspend fun setImageCacheLightweight(enabled: Boolean) {
         _imageCacheLightweight.value = enabled
         dataStore.edit { it[IMAGE_CACHE_LIGHTWEIGHT] = enabled }
@@ -637,13 +685,19 @@ class AppSettings @Inject constructor(
         dataStore.edit { it[TOOLBOX_TOOL_ORDER] = order.joinToString(",") }
     }
 
-    suspend fun setXdcCustomTools(tools: List<XdcCustomTool>) {
-        _xdcCustomTools.value = tools
-        dataStore.edit { it[XDC_CUSTOM_TOOLS] = XdcCustomToolsCodec.encode(tools) }
-    }
-
     suspend fun setToolboxScreenshotBlockEnabled(enabled: Boolean) {
         dataStore.edit { it[TOOLBOX_SCREENSHOT_BLOCK_ENABLED] = enabled }
+    }
+
+    /** Clear toolbox credentials as one atomic finalization after a successful wipe. */
+    suspend fun clearToolboxSecurity() {
+        dataStore.edit { prefs ->
+            prefs.remove(TOOLBOX_PIN_ENABLED)
+            prefs.remove(TOOLBOX_PIN_HASH)
+            prefs.remove(TOOLBOX_DURESS_PIN_ENABLED)
+            prefs.remove(TOOLBOX_DURESS_PIN_HASH)
+            prefs.remove(TOOLBOX_SCREENSHOT_BLOCK_ENABLED)
+        }
     }
 
     suspend fun getToolboxPinEnabled(): Boolean =
@@ -845,43 +899,71 @@ class AppSettings @Inject constructor(
         dataStore.edit { it[BLOCKED_PUBKEYS] = next }
     }
 
-    suspend fun setHideNsfw(enabled: Boolean) {
-        _hideNsfw.value = enabled
-        dataStore.edit { it[HIDE_NSFW] = enabled }
+    // Filter words persist as "w:<word>" (whole word) / "a:<word>" (anywhere).
+    // Entries stored before match modes existed have no prefix and migrate to
+    // whole-word matching, the new default.
+    private fun encodeFilterWord(word: FilterWord): String =
+        (if (word.mode == WordMatchMode.ANYWHERE) "a:" else "w:") + word.word
+
+    private fun decodeFilterWord(stored: String): FilterWord = when {
+        stored.startsWith("a:") -> FilterWord(stored.drop(2), WordMatchMode.ANYWHERE)
+        stored.startsWith("w:") -> FilterWord(stored.drop(2), WordMatchMode.WHOLE_WORD)
+        else -> FilterWord(stored, WordMatchMode.WHOLE_WORD)
     }
 
-    suspend fun setBleepWords(words: Set<String>) {
+    suspend fun setNsfwMode(mode: NsfwMode) {
+        _nsfwMode.value = mode
+        dataStore.edit { it[NSFW_MODE] = mode.name }
+    }
+
+    suspend fun setBleepWords(words: Set<FilterWord>) {
         _bleepWords.value = words
-        dataStore.edit { it[BLEEP_WORDS] = words }
+        dataStore.edit { it[BLEEP_WORDS] = words.map(::encodeFilterWord).toSet() }
     }
 
-    suspend fun addBleepWord(word: String) {
-        val next = _bleepWords.value + word.trim().lowercase()
+    suspend fun addBleepWord(word: String, mode: WordMatchMode = WordMatchMode.WHOLE_WORD) {
+        val cleaned = word.trim().lowercase()
+        if (cleaned.isEmpty()) return
+        val next = _bleepWords.value.filterNot { it.word == cleaned }.toSet() + FilterWord(cleaned, mode)
         _bleepWords.value = next
-        dataStore.edit { it[BLEEP_WORDS] = next }
+        dataStore.edit { it[BLEEP_WORDS] = next.map(::encodeFilterWord).toSet() }
     }
 
-    suspend fun removeBleepWord(word: String) {
+    suspend fun removeBleepWord(word: FilterWord) {
         val next = _bleepWords.value - word
         _bleepWords.value = next
-        dataStore.edit { it[BLEEP_WORDS] = next }
+        dataStore.edit { it[BLEEP_WORDS] = next.map(::encodeFilterWord).toSet() }
     }
 
-    suspend fun setHideWords(words: Set<String>) {
+    suspend fun setBleepWordMode(word: FilterWord, mode: WordMatchMode) {
+        val next = _bleepWords.value - word + FilterWord(word.word, mode)
+        _bleepWords.value = next
+        dataStore.edit { it[BLEEP_WORDS] = next.map(::encodeFilterWord).toSet() }
+    }
+
+    suspend fun setHideWords(words: Set<FilterWord>) {
         _hideWords.value = words
-        dataStore.edit { it[HIDE_WORDS] = words }
+        dataStore.edit { it[HIDE_WORDS] = words.map(::encodeFilterWord).toSet() }
     }
 
-    suspend fun addHideWord(word: String) {
-        val next = _hideWords.value + word.trim().lowercase()
+    suspend fun addHideWord(word: String, mode: WordMatchMode = WordMatchMode.WHOLE_WORD) {
+        val cleaned = word.trim().lowercase()
+        if (cleaned.isEmpty()) return
+        val next = _hideWords.value.filterNot { it.word == cleaned }.toSet() + FilterWord(cleaned, mode)
         _hideWords.value = next
-        dataStore.edit { it[HIDE_WORDS] = next }
+        dataStore.edit { it[HIDE_WORDS] = next.map(::encodeFilterWord).toSet() }
     }
 
-    suspend fun removeHideWord(word: String) {
+    suspend fun removeHideWord(word: FilterWord) {
         val next = _hideWords.value - word
         _hideWords.value = next
-        dataStore.edit { it[HIDE_WORDS] = next }
+        dataStore.edit { it[HIDE_WORDS] = next.map(::encodeFilterWord).toSet() }
+    }
+
+    suspend fun setHideWordMode(word: FilterWord, mode: WordMatchMode) {
+        val next = _hideWords.value - word + FilterWord(word.word, mode)
+        _hideWords.value = next
+        dataStore.edit { it[HIDE_WORDS] = next.map(::encodeFilterWord).toSet() }
     }
 
     suspend fun setFollowersEnabled(enabled: Boolean) {
@@ -928,6 +1010,10 @@ class AppSettings @Inject constructor(
         _geohashChannels.value = entries
         dataStore.edit { it[GEOHASH_CHANNELS] = GeohashChannelStore.encode(entries) }
     }
+
+    /** Read committed preferences, not the eventually updated presentation flow. */
+    suspend fun getGeohashCacheMillis(): Long =
+        dataStore.data.first()[GEOHASH_CACHE_MILLIS]?.takeIf { it in GEOHASH_CACHE_OPTIONS } ?: 0L
 
     suspend fun setGeohashCacheMillis(millis: Long) {
         require(millis in GEOHASH_CACHE_OPTIONS)

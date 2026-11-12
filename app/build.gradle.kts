@@ -134,6 +134,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -170,20 +171,22 @@ android {
 // stays skipped — for normal builds and CI.
 tasks.withType<Test>().configureEach {
     systemProperty("blossomLive", System.getProperty("blossomLive") ?: "")
-    // Opt-in compatibility check against a directory of real .xdc packages.
-    systemProperty("xdcFixtures", System.getProperty("xdcFixtures") ?: "")
-    // Opt-in export of the served mini-app tree (screenshots/compatibility checks).
-    systemProperty("xdcHarnessOut", System.getProperty("xdcHarnessOut") ?: "")
 }
 
 dependencies {
     // AndroidX Core
     implementation(libs.androidx.core.ktx)
+    implementation("androidx.webkit:webkit:1.13.0")
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
+
+    // Android 8 (API 26) Fix: Core Library Desugaring
+    // Enables API 31+ features (like MediaRecorder(Context)) to be used safely on API 26
+    // by providing backported implementations.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
     // Compose
     implementation(platform(libs.androidx.compose.bom))

@@ -48,7 +48,17 @@ import androidx.media3.common.VideoSize
 import androidx.media3.ui.PlayerView
 import android.view.LayoutInflater
 import coil.decode.GifDecoder
+import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import social.tbone.ui.media.LocalMediaFitted
+import social.tbone.ui.media.LocalVideoThumbnails
+import social.tbone.util.BlurHash
 import coil.request.ImageRequest
 import coil.size.Precision
 import social.tbone.R
@@ -80,12 +90,14 @@ private val VIDEO_EXTENSIONS = setOf(
     "divx", "flv", "wmv", "mpeg", "mpg", "m2v", "m2ts", "m2t", "mts", "ts", "vob",
     "asf", "mxf", "rm", "rmvb", "f4v", "f4p", "dv", "264", "h264", "265", "h265", "hevc",
 )
-private val URL_REGEX = Regex("""https?://\S+""")
 
 private val NOSTR_URI_REGEX = Regex("""nostr:(note1|nevent1|npub1|nprofile1|naddr1)[a-z0-9]*""")
 
 /** Height of inline images in note cards — tall enough to actually see the picture. */
 private val INLINE_IMAGE_HEIGHT = 260.dp
+
+/** Height cap for fitted (real-shape) media frames; the box is unchanged at [INLINE_IMAGE_HEIGHT]. */
+private val FITTED_MEDIA_MAX_HEIGHT = 480.dp
 
 /** Height of the tap-to-open placeholder shown when inline loading is off. */
 private val PLACEHOLDER_HEIGHT = 200.dp
@@ -101,9 +113,36 @@ private const val FULL_QUALITY_MAX_SIZE = 1600
 private const val LOW_QUALITY_MAX_SIZE = 512
 
 sealed class MediaItem {
-    data class Image(val url: String) : MediaItem()
-    data class Video(val url: String) : MediaItem()
+    data class Image(val url: String, val meta: MediaMeta? = null) : MediaItem()
+    data class Video(val url: String, val meta: MediaMeta? = null) : MediaItem()
     data class Audio(val url: String) : MediaItem()
+}
+
+/**
+ * Display hints a note may state about its media (NIP-92 `imeta`):
+ * dimensions ("1024x768"), a BlurHash preview code, a ThumbHash, and for
+ * videos a poster frame URL. All optional — most clients include some,
+ * older notes include none, and rendering must cope either way.
+ */
+data class MediaMeta(
+    val mime: String? = null,
+    val dimension: String? = null,
+    val blurhash: String? = null,
+    val thumbhash: String? = null,
+    val image: String? = null,
+) {
+    /** Width/height ratio from [dimension], or null when unstated/invalid. */
+    val aspectRatio: Float? get() = parseMediaAspectRatio(dimension)
+}
+
+/** Parses an imeta "WxH" dimension string into a width/height ratio. */
+fun parseMediaAspectRatio(dimension: String?): Float? {
+    val parts = dimension?.trim()?.split('x', 'X') ?: return null
+    if (parts.size != 2) return null
+    val w = parts[0].trim().toFloatOrNull() ?: return null
+    val h = parts[1].trim().toFloatOrNull() ?: return null
+    if (w <= 0f || h <= 0f) return null
+    return (w / h).takeIf { it.isFinite() }
 }
 
 data class ParsedContent(
@@ -153,14 +192,17 @@ fun parseNoteContent(
     // body renderer can make them tappable (@name → profile, note → thread).
     val withoutNostrUris = content
 
-    val text = URL_REGEX.replace(withoutNostrUris) { match ->
-        val url = match.value
-        val ext = url.substringAfterLast('.').lowercase()
-            .substringBefore('?').substringBefore('#')
+    val text = social.tbone.util.HTTP_URL_REGEX.replace(withoutNostrUris) { match ->
+        val url = social.tbone.util.trimUrlPunctuation(match.value)
+        val suffix = match.value.substring(url.length)
+        // Only inspect the final path component, not the host, query or fragment.
+        val path = url.substringBefore('?').substringBefore('#').substringAfter("://").substringAfter('/', "")
+        val file = path.substringAfterLast('/')
+        val ext = if ('.' in file) file.substringAfterLast('.').lowercase() else ""
         when {
-            ext in IMAGE_EXTENSIONS -> { mediaItems.add(MediaItem.Image(url)); "" }
-            ext in AUDIO_EXTENSIONS -> { mediaItems.add(MediaItem.Audio(url)); "" }
-            ext in VIDEO_EXTENSIONS -> { mediaItems.add(MediaItem.Video(url)); "" }
+            ext in IMAGE_EXTENSIONS -> { mediaItems.add(MediaItem.Image(url)); suffix }
+            ext in AUDIO_EXTENSIONS -> { mediaItems.add(MediaItem.Audio(url)); suffix }
+            ext in VIDEO_EXTENSIONS -> { mediaItems.add(MediaItem.Video(url)); suffix }
             else -> match.value
         }
     }.replace(Regex(" {2,}"), " ").replace(Regex("\n{3,}"), "\n\n").trim()
@@ -187,15 +229,15 @@ fun NoteMediaContent(mediaItems: List<MediaItem>, modifier: Modifier = Modifier)
                 is MediaItem.Image -> when (imageMode) {
                     ImageLoadMode.OFF -> {
                         if (item.url in revealedImages) {
-                            InlineImage(url = item.url, lowQuality = false, onOpen = { imageViewerUrl = item.url })
+                            InlineImage(url = item.url, meta = item.meta, lowQuality = false, onOpen = { imageViewerUrl = item.url })
                         } else {
                             MediaPlaceholder(label = "[ image · tap to show ]", url = item.url, onOpen = { revealedImages = revealedImages + item.url })
                         }
                     }
                     ImageLoadMode.ON ->
-                        InlineImage(url = item.url, lowQuality = false, onOpen = { imageViewerUrl = item.url })
+                        InlineImage(url = item.url, meta = item.meta, lowQuality = false, onOpen = { imageViewerUrl = item.url })
                     ImageLoadMode.LOW_QUALITY ->
-                        InlineImage(url = item.url, lowQuality = true, onOpen = { imageViewerUrl = item.url })
+                        InlineImage(url = item.url, meta = item.meta, lowQuality = true, onOpen = { imageViewerUrl = item.url })
                 }
                 is MediaItem.Audio -> InlineAudioPlayer(url = item.url)
                 is MediaItem.Video -> {
@@ -210,6 +252,7 @@ fun NoteMediaContent(mediaItems: List<MediaItem>, modifier: Modifier = Modifier)
                         Box(Modifier.testTag("active-inline-video")) {
                             InlineVideo(
                                 url = item.url,
+                                meta = item.meta,
                                 quality = if (videoQuality == VideoQuality.OFF) VideoQuality.REGULAR else videoQuality,
                                 playWhenReady = true,
                                 onOpen = {
@@ -222,6 +265,7 @@ fun NoteMediaContent(mediaItems: List<MediaItem>, modifier: Modifier = Modifier)
                     } else {
                         VideoPlaceholder(
                             url = item.url,
+                            meta = item.meta,
                             onOpen = { ActiveInlineVideo.owner = token },
                             onFullscreen = {
                                 ActiveInlineVideo.owner = null
@@ -263,6 +307,7 @@ private object ActiveInlineVideo {
 @Composable
 private fun InlineVideo(
     url: String,
+    meta: MediaMeta? = null,
     quality: VideoQuality,
     playWhenReady: Boolean,
     onOpen: () -> Unit,
@@ -297,7 +342,7 @@ private fun InlineVideo(
     }
     val playbackFailed = remember(player) { mutableStateOf(false) }
     val isPlaying = remember(player) { mutableStateOf(player.isPlaying) }
-    val videoAspectRatio = remember(player) { mutableStateOf<Float?>(null) }
+    val videoAspectRatio = remember(player) { mutableStateOf(meta?.aspectRatio) }
 
     // PlayerView reports the actual display dimensions after track selection.
     // Using the ratio lets Youniversal remove only the unused letterbox area;
@@ -345,13 +390,13 @@ private fun InlineVideo(
         return
     }
 
-    val youniversal = YouniversalTheme.enabled
+    val fittedEnabled = mediaFittedEnabled()
     BoxWithConstraints(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center,
     ) {
-        val fittedSize = if (youniversal) {
-            videoAspectRatio.value?.let { fitMediaFrame(maxWidth, INLINE_IMAGE_HEIGHT, it) }
+        val fittedSize = if (fittedEnabled) {
+            videoAspectRatio.value?.let { fitMediaFrame(maxWidth, FITTED_MEDIA_MAX_HEIGHT, it) }
         } else {
             null
         }
@@ -431,10 +476,12 @@ private fun VideoPlayBadge() {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun InlineImage(url: String, lowQuality: Boolean, onOpen: () -> Unit) {
+private fun InlineImage(url: String, meta: MediaMeta? = null, lowQuality: Boolean, onOpen: () -> Unit) {
     val context = LocalContext.current
-    val youniversal = YouniversalTheme.enabled
-    var aspectRatio by remember(url, lowQuality) { mutableStateOf<Float?>(null) }
+    val fittedEnabled = mediaFittedEnabled()
+    // The note's stated shape sizes the frame before anything downloads;
+    // the loaded image's real shape refines it afterwards.
+    var aspectRatio by remember(url, lowQuality) { mutableStateOf(meta?.aspectRatio) }
     // Keep the complete URL: query parameters can identify different media.
     val cacheKey = remember(url) { "inline-image-animated:$url" }
     val request = remember(url, lowQuality) {
@@ -462,14 +509,14 @@ private fun InlineImage(url: String, lowQuality: Boolean, onOpen: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center,
     ) {
-        // Fit to the same bounds as before, then size the rounded surface to
-        // the rendered image itself. That removes empty letterbox area without
-        // enlarging, shrinking, or cropping the image content.
-        val fittedSize = if (youniversal) {
-            aspectRatio?.let { fitMediaFrame(maxWidth, INLINE_IMAGE_HEIGHT, it) }
+        // Fitted layout: size the rounded surface to the image itself,
+        // removing empty letterbox area without cropping the content.
+        val fittedSize = if (fittedEnabled) {
+            aspectRatio?.let { fitMediaFrame(maxWidth, FITTED_MEDIA_MAX_HEIGHT, it) }
         } else {
             null
         }
+        val blurPainter = if (fittedEnabled) rememberBlurPainter(meta) else null
         val shape = appCornerShape(MaterialTheme.shapes.medium)
         val frameModifier = if (fittedSize != null) {
             Modifier.width(fittedSize.width).height(fittedSize.height)
@@ -492,7 +539,18 @@ private fun InlineImage(url: String, lowQuality: Boolean, onOpen: () -> Unit) {
                     if (ratio.isFinite() && ratio > 0f) aspectRatio = ratio
                 }
             },
-            loading = { MediaStripes(Modifier.fillMaxSize()) },
+            loading = {
+                if (blurPainter != null) {
+                    Image(
+                        painter = blurPainter,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    MediaStripes(Modifier.fillMaxSize())
+                }
+            },
             error = {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     MediaStripes(Modifier.fillMaxSize())
@@ -511,18 +569,55 @@ private fun InlineImage(url: String, lowQuality: Boolean, onOpen: () -> Unit) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun VideoPlaceholder(url: String, onOpen: () -> Unit, onFullscreen: () -> Unit) {
+private fun VideoPlaceholder(url: String, meta: MediaMeta? = null, onOpen: () -> Unit, onFullscreen: () -> Unit) {
     val context = LocalContext.current
     val shape = appCornerShape(MaterialTheme.shapes.medium)
-    Box(
-        modifier = Modifier.testTag("video-placeholder").fillMaxWidth().height(PLACEHOLDER_HEIGHT).clip(shape)
-            .background(BonyColors.SurfaceAlt, shape).border(1.dp, BonyColors.Rule, shape)
-            .combinedClickable(onClick = onOpen, onLongClick = { copyNoteLink(context, url) }),
-        contentAlignment = Alignment.Center,
-    ) {
-        MediaStripes(Modifier.matchParentSize())
-        VideoPlayBadge()
-        FullscreenButton(onFullscreen, Modifier.align(Alignment.BottomEnd))
+    val thumbnailsEnabled = LocalVideoThumbnails.current
+    val fittedEnabled = mediaFittedEnabled()
+    val posterUrl = meta?.image?.takeIf { thumbnailsEnabled }
+    val blurPainter = if (posterUrl != null || fittedEnabled) rememberBlurPainter(meta) else null
+
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        val fittedSize = if (fittedEnabled) {
+            meta?.aspectRatio?.let { fitMediaFrame(maxWidth, FITTED_MEDIA_MAX_HEIGHT, it) }
+        } else {
+            null
+        }
+        val frameModifier = if (fittedSize != null) {
+            Modifier.width(fittedSize.width).height(fittedSize.height)
+        } else {
+            Modifier.fillMaxWidth().height(PLACEHOLDER_HEIGHT)
+        }
+        Box(
+            modifier = Modifier.testTag("video-placeholder").then(frameModifier).clip(shape)
+                .background(BonyColors.SurfaceAlt, shape).border(1.dp, BonyColors.Rule, shape)
+                .combinedClickable(onClick = onOpen, onLongClick = { copyNoteLink(context, url) }),
+            contentAlignment = Alignment.Center,
+        ) {
+            MediaStripes(Modifier.matchParentSize())
+            if (posterUrl != null) {
+                // The still the poster supplied with the note (NIP-92 imeta
+                // "image"). Nothing is extracted on-device; when no still
+                // was supplied, the blurred preview / stripes remain.
+                AsyncImage(
+                    model = posterUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    placeholder = blurPainter,
+                    error = blurPainter,
+                    modifier = Modifier.matchParentSize(),
+                )
+            } else if (blurPainter != null) {
+                Image(
+                    painter = blurPainter,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+            VideoPlayBadge()
+            FullscreenButton(onFullscreen, Modifier.align(Alignment.BottomEnd))
+        }
     }
 }
 
@@ -577,6 +672,39 @@ private fun MediaStripes(modifier: Modifier = Modifier) {
         }
     }
 }
+
+/** Small decoded BlurHash previews, shared across rows (key = the hash itself). */
+private val blurPainterCache = android.util.LruCache<String, BitmapPainter>(128)
+
+/**
+ * The blurred stand-in for [meta]'s media, decoded from the note's BlurHash
+ * at thumbnail size off the main thread. Null when the note carries no
+ * usable BlurHash (stripes remain the fallback).
+ */
+@Composable
+internal fun rememberBlurPainter(meta: MediaMeta?): BitmapPainter? {
+    val blurhash = meta?.blurhash?.takeIf { BlurHash.isValid(it) }
+    val painter by produceState<BitmapPainter?>(null, blurhash) {
+        if (blurhash == null) return@produceState
+        blurPainterCache.get(blurhash)?.let { value = it; return@produceState }
+        value = withContext(Dispatchers.Default) {
+            val ratio = meta?.aspectRatio
+            val width = 64
+            val height = if (ratio != null && ratio > 0f) {
+                (width / ratio).toInt().coerceIn(16, 96)
+            } else 64
+            BlurHash.decodeToBitmap(blurhash, width, height)
+                ?.let { BitmapPainter(it.asImageBitmap()) }
+        }
+        value?.let { blurPainterCache.put(blurhash, it) }
+    }
+    return painter
+}
+
+/** True when media frames should take the media's real shape (setting or Youniversal). */
+@Composable
+internal fun mediaFittedEnabled(): Boolean =
+    LocalMediaFitted.current || YouniversalTheme.enabled
 
 /** The content dimensions of a media item fitted into the existing preview bounds. */
 internal data class MediaFrameSize(val width: androidx.compose.ui.unit.Dp, val height: androidx.compose.ui.unit.Dp)

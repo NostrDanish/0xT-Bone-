@@ -1,5 +1,6 @@
 package social.tbone.ui.thread
 
+import social.tbone.ui.theme.feedPageBackground
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -37,6 +38,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import social.tbone.nostr.Event
 import social.tbone.nostr.EventKind
 import social.tbone.nostr.quotedEventId
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
+import dev.youniversal.theme.YouniversalTheme
 import social.tbone.ui.feed.NoteCard
 import social.tbone.ui.feed.extractInlineQuoteId
 import social.tbone.ui.theme.BonyColors
@@ -107,13 +111,13 @@ fun ThreadScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(BonyColors.Bg),
+            .background(feedPageBackground()),
     ) {
         // ── Top bar ───────────────────────────────────────────────────────────
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(BonyColors.Bg)
+                .background(feedPageBackground())
                 .statusBarsPadding(),
         ) {
             Row(
@@ -266,7 +270,15 @@ private fun ThreadRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .threadRail(depth = depth, highlightLastRail = item.highlighted),
+            .threadRail(
+                depth = depth,
+                highlightLastRail = item.highlighted,
+                subtleRailColor = if (YouniversalTheme.enabled) {
+                    MaterialTheme.colorScheme.outlineVariant
+                } else {
+                    BonyColors.RuleStrong
+                },
+            ),
     ) {
         NoteCard(
             event = event,
@@ -335,6 +347,8 @@ internal object ThreadIndent {
 private fun Modifier.threadRail(
     depth: Int,
     highlightLastRail: Boolean,
+    /** Non-highlight rail colour; passed in from composition (Youniversal uses the subtle outline). */
+    subtleRailColor: Color = BonyColors.RuleStrong,
 ): Modifier {
     if (depth <= 0) return this
     return this.drawBehind {
@@ -344,7 +358,7 @@ private fun Modifier.threadRail(
         for (level in 0 until depth) {
             val x = inset + level * step
             drawLine(
-                color = if (highlightLastRail && level == depth - 1) BonyColors.Accent else BonyColors.RuleStrong,
+                color = if (highlightLastRail && level == depth - 1) BonyColors.Accent else subtleRailColor,
                 start = Offset(x, 0f),
                 end = Offset(x, size.height),
                 strokeWidth = stroke,

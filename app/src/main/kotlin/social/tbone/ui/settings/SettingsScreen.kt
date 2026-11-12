@@ -43,13 +43,24 @@ import social.tbone.nostr.identity.Phrase
 import social.tbone.settings.AvatarMode
 import social.tbone.settings.ImageLoadMode
 import social.tbone.settings.VideoQuality
-import social.tbone.settings.ORBOT_ZAPSTORE_URL
+import social.tbone.settings.openOrbotInstallPage
 import social.tbone.settings.ThemeMode
 import social.tbone.settings.UiTheme
 import dev.youniversal.theme.YouniversalBackgroundStyle
 import dev.youniversal.theme.YouniversalContrast
 import dev.youniversal.theme.YouniversalThemeState
 import dev.youniversal.theme.YouniversalFontOption
+import dev.youniversal.theme.YouniversalSwitch
+import dev.youniversal.theme.YouniversalTheme
+import dev.youniversal.theme.YouniversalLook
+import dev.youniversal.theme.youniversalLookScheme
+import dev.youniversal.theme.youniversalScheme
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.MaterialTheme
 import social.tbone.ui.theme.ThemeViewModel
@@ -81,6 +92,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val cleanupStatus by viewModel.cleanupStatus.collectAsStateWithLifecycle()
     val torEnabled by viewModel.torEnabled.collectAsStateWithLifecycle()
     val pinEnabled by viewModel.pinEnabled.collectAsStateWithLifecycle()
     val duressPinEnabled by viewModel.duressPinEnabled.collectAsStateWithLifecycle()
@@ -90,6 +102,8 @@ fun SettingsScreen(
     val clientTagEnabled by viewModel.clientTagEnabled.collectAsStateWithLifecycle()
     val imageLoadMode by viewModel.imageLoadMode.collectAsStateWithLifecycle()
     val videoQuality by viewModel.videoQuality.collectAsStateWithLifecycle()
+    val videoThumbnails by viewModel.videoThumbnails.collectAsStateWithLifecycle()
+    val mediaFittedLayout by viewModel.mediaFittedLayout.collectAsStateWithLifecycle()
     val imageCacheLightweight by viewModel.imageCacheLightweight.collectAsStateWithLifecycle()
     val avatarMode by viewModel.avatarMode.collectAsStateWithLifecycle()
     val avatarAnimated by viewModel.avatarAnimated.collectAsStateWithLifecycle()
@@ -119,6 +133,11 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState()),
     ) {
         SettingsTopBar(onBack)
+        if (cleanupStatus == social.tbone.migration.CleanupStatus.NeedsAttention) {
+            Text("Old mini-app data cleanup is incomplete. Update Android System WebView, then tap to retry. Exported or shared copies remain outside this app.",
+                modifier = Modifier.fillMaxWidth().clickable { viewModel.retryLegacyCleanup() }.padding(16.dp),
+                style = BonyType.body, color = BonyColors.Danger)
+        }
         SettingsSwitchRow(
             title = "UI declutter",
             description = "compact tabs and make Settings categories collapsible",
@@ -161,6 +180,8 @@ fun SettingsScreen(
             imageLoadMode = imageLoadMode,
             videoQuality = videoQuality,
             imageCacheLightweight = imageCacheLightweight,
+            videoThumbnails = videoThumbnails,
+            mediaFittedLayout = mediaFittedLayout,
             compact = declutterMode,
             expanded = sectionExpanded("media"),
             onToggle = { toggleSection("media") },
@@ -448,7 +469,7 @@ private fun SettingsNoteActionsSection(noteMenuModerationEnabled: Boolean, clien
 }
 
 @Composable
-private fun SettingsMediaSection(viewModel: SettingsViewModel, onProfileEdit: () -> Unit, onBlossom: () -> Unit, imageLoadMode: ImageLoadMode, videoQuality: VideoQuality, imageCacheLightweight: Boolean, compact: Boolean, expanded: Boolean, onToggle: () -> Unit) {
+private fun SettingsMediaSection(viewModel: SettingsViewModel, onProfileEdit: () -> Unit, onBlossom: () -> Unit, imageLoadMode: ImageLoadMode, videoQuality: VideoQuality, imageCacheLightweight: Boolean, videoThumbnails: Boolean, mediaFittedLayout: Boolean, compact: Boolean, expanded: Boolean, onToggle: () -> Unit) {
     // ── Media section ─────────────────────────────────────────────────────
     SettingsCategoryHeader("MEDIA", compact, expanded, onToggle)
     if (compact && !expanded) return
@@ -559,9 +580,45 @@ private fun SettingsMediaSection(viewModel: SettingsViewModel, onProfileEdit: ()
 
         Spacer(Modifier.height(14.dp))
         Text(
-            "Videos use a lightweight placeholder. Tap to load and play one at a time; no video thumbnails are extracted.",
+            "Videos use a lightweight placeholder. Tap to load and play one at a time. When a post supplies a preview still, it is shown instead of the placeholder — nothing is extracted from videos on this device.",
             style = BonyType.meta.copy(color = BonyColors.TextMute),
         )
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("video thumbnails", style = BonyType.body.copy(color = BonyColors.TextDim))
+                Text(
+                    "show the preview still a post supplies for its video",
+                    style = BonyType.meta.copy(color = BonyColors.TextMute),
+                )
+            }
+            BonyToggle(
+                checked = videoThumbnails,
+                enabled = true,
+                onCheckedChange = { viewModel.setVideoThumbnails(it) },
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("fit media to its real shape", style = BonyType.body.copy(color = BonyColors.TextDim))
+                Text(
+                    "pictures and videos take their own proportions (using the size stated in the post when available) instead of the standard box · blurred previews while loading",
+                    style = BonyType.meta.copy(color = BonyColors.TextMute),
+                )
+            }
+            BonyToggle(
+                checked = mediaFittedLayout,
+                enabled = true,
+                onCheckedChange = { viewModel.setMediaFittedLayout(it) },
+            )
+        }
         Spacer(Modifier.height(12.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -798,6 +855,32 @@ private fun SettingsAppearanceSection(viewModel: SettingsViewModel, uiTheme: UiT
                 style = BonyType.meta.copy(color = BonyColors.TextMute),
             )
 
+            // One-tap looks: coordinated bundles of the fine-tune controls
+            // below, each with a live mini preview of its own palette.
+            Text("looks", style = BonyType.meta.copy(color = BonyColors.TextMute))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                YouniversalLook.entries.forEach { look ->
+                    LookPreviewCard(
+                        look = look,
+                        selected = youniversalState.activeLook == look,
+                        state = youniversalState,
+                        onClick = { youniversalState.applyLook(look) },
+                    )
+                }
+            }
+            Text(
+                "tap a look to set everything below at once — tweak any control and it becomes Custom",
+                style = BonyType.metaDim.copy(color = BonyColors.TextMute),
+            )
+
+            // Fine-tune controls. Any manual change here marks the mix Custom.
+            Text("fine tune", style = BonyType.meta.copy(color = BonyColors.TextMute))
+
             // App-wide typeface. Standard is intentionally the Youniversal
             // default; Soft provides a warmer, rounded sans-serif alternative.
             Text("app font", style = BonyType.meta.copy(color = BonyColors.TextMute))
@@ -1016,7 +1099,118 @@ private fun SettingsAppearanceSection(viewModel: SettingsViewModel, uiTheme: UiT
             }
         }
     }
+    // Launcher-icon presets close the section so they collapse together with
+    // the theme settings under UI declutter.
+    IconSettings()
     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
+}
+
+/**
+ * Mini live mock of one Youniversal look for the settings looks row:
+ * the look's own background, a stand-in post card, name/body lines and the
+ * accent dot. [YouniversalLook.CUSTOM] previews the current fine-tune mix.
+ */
+@Composable
+private fun LookPreviewCard(
+    look: YouniversalLook,
+    selected: Boolean,
+    state: YouniversalThemeState,
+    onClick: () -> Unit,
+) {
+    val systemDark = isSystemInDarkTheme()
+    val context = LocalContext.current
+    val scheme = remember(
+        look,
+        systemDark,
+        state.backgroundStyle,
+        state.contrast,
+        state.accentSeed,
+        state.dynamicColor,
+    ) {
+        val wallpaper: ((Boolean) -> ColorScheme)? =
+            if (
+                state.dynamicColor &&
+                state.accentSeed == Color.Unspecified &&
+                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+            ) {
+                { isDark ->
+                    if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+                }
+            } else {
+                null
+            }
+        if (look.isBundle) {
+            youniversalLookScheme(look, systemDark, wallpaper)
+        } else {
+            youniversalScheme(
+                backgroundStyle = state.backgroundStyle,
+                contrast = state.contrast,
+                accentSeed = state.accentSeed,
+                isSystemDark = systemDark,
+                dynamicScheme = wallpaper,
+            )
+        }
+    }
+    val cornerScale = if (look.isBundle) look.cornerScale else state.cornerScale
+    val shape = RoundedCornerShape((10 * cornerScale).dp)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(76.dp)
+                .clip(shape)
+                .background(scheme.background, shape)
+                .border(
+                    if (selected) 2.dp else 1.dp,
+                    if (selected) BonyColors.Accent else BonyColors.Rule,
+                    shape,
+                ),
+        ) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 8.dp, top = 8.dp, end = 26.dp),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(0.72f)
+                        .height(6.dp)
+                        .background(scheme.onSurface.copy(alpha = 0.92f), appCornerShape(MaterialTheme.shapes.extraSmall, RoundedCornerShape(3.dp))),
+                )
+                Spacer(Modifier.height(5.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth(0.95f)
+                        .height(4.dp)
+                        .background(scheme.onSurfaceVariant.copy(alpha = 0.7f), appCornerShape(MaterialTheme.shapes.extraSmall, RoundedCornerShape(2.dp))),
+                )
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth(0.58f)
+                        .height(4.dp)
+                        .background(scheme.onSurfaceVariant.copy(alpha = 0.55f), appCornerShape(MaterialTheme.shapes.extraSmall, RoundedCornerShape(2.dp))),
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(7.dp)
+                    .size(10.dp)
+                    .background(scheme.primary, CircleShape),
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = look.label,
+            style = BonyType.tag.copy(
+                color = if (selected) BonyColors.Accent else BonyColors.TextMute,
+            ),
+            maxLines = 1,
+        )
+    }
 }
 
 @Composable
@@ -1039,8 +1233,8 @@ private fun SettingsPrivacySection(viewModel: SettingsViewModel, context: Contex
             .then(
                 if (!viewModel.orbotInstalled)
                     Modifier.clickable {
-                        if (ORBOT_ZAPSTORE_URL.startsWith("https://")) {
-                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ORBOT_ZAPSTORE_URL))) }
+                        if (!openOrbotInstallPage(context)) {
+                            android.widget.Toast.makeText(context, "No app could open the Orbot installation page", android.widget.Toast.LENGTH_LONG).show()
                         }
                     }
                 else Modifier,
@@ -1052,7 +1246,7 @@ private fun SettingsPrivacySection(viewModel: SettingsViewModel, context: Contex
             Text("route via tor", style = BonyType.body.copy(color = BonyColors.Text))
             if (!viewModel.orbotInstalled) {
                 Text(
-                    "install orbot on zapstore",
+                    "install orbot from its official download page",
                     style = BonyType.meta.copy(color = BonyColors.Link),
                 )
             }
@@ -1065,7 +1259,7 @@ private fun SettingsPrivacySection(viewModel: SettingsViewModel, context: Contex
     }
     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
 
-    // Tor kill-switch: block direct traffic when Tor is on but Orbot died (opt-in, off by default so no UX hurt)
+    // This is a preflight check, not continuous monitoring of active requests.
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1073,8 +1267,8 @@ private fun SettingsPrivacySection(viewModel: SettingsViewModel, context: Contex
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text("tor kill-switch", style = BonyType.body.copy(color = BonyColors.Text))
-            Text("when Tor is on, block uploads if Orbot disconnects", style = BonyType.meta.copy(color = BonyColors.TextMute))
+            Text("check Orbot before upload", style = BonyType.body.copy(color = BonyColors.Text))
+            Text("checks Orbot before Blossom uploads; not a network-wide kill switch and active uploads are not monitored", style = BonyType.meta.copy(color = BonyColors.TextMute))
         }
         val killSwitch by viewModel.torKillSwitch.collectAsStateWithLifecycle()
         BonyToggle(checked = killSwitch, enabled = torEnabled, onCheckedChange = viewModel::setTorKillSwitch)
@@ -1162,10 +1356,14 @@ private fun SettingsPrivacySection(viewModel: SettingsViewModel, context: Contex
             Text("duress pin", style = BonyType.body.copy(color = BonyColors.Text))
             Text(
                 text = when {
-                    duressPinEnabled -> "entering it on the lock screen wipes all app data · tap to disable"
-                    else -> "a 4-digit pin that wipes all app data instead of unlocking · tap to set"
+                    duressPinEnabled -> "entering it attempts to clear local app data · tap to disable"
+                    else -> "a 4-digit pin that attempts to clear local app data instead of unlocking · tap to set"
                 },
                 style = BonyType.meta.copy(color = BonyColors.TextMute),
+            )
+            Text(
+                "Pending legacy mini-app browser cleanup must finish before the wipe can complete. Exported or shared copies may remain; deletion is not secure erasure.",
+                style = BonyType.caption.copy(color = BonyColors.TextMute),
             )
         }
         BonyToggle(
@@ -1357,6 +1555,11 @@ internal fun BonyToggle(
     enabled: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    if (YouniversalTheme.enabled) {
+        // Kit swap: a real switch under Youniversal; classic keeps the ◉/○ chip.
+        YouniversalSwitch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+        return
+    }
     val label = if (checked) "◉ ON" else "○ OFF"
     val color = if (!enabled) BonyColors.TextMute else if (checked) BonyColors.Accent else BonyColors.TextMute
 

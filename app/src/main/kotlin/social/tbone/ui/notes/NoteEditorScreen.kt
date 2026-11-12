@@ -1,11 +1,12 @@
 package social.tbone.ui.notes
 
+import android.os.Build
 import social.tbone.ui.theme.appBorder
 import android.Manifest
 import android.content.Context
-import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -73,6 +74,7 @@ import social.tbone.ui.permissions.rememberPermissionRequester
 import social.tbone.ui.theme.BonyColors
 import social.tbone.ui.theme.BonyType
 import java.io.File
+import social.tbone.util.readBounded
 
 private val MARKER = Regex("""\[\[(voice|image):([0-9a-zA-Z-]+)\]\]""")
 
@@ -107,10 +109,19 @@ fun NoteEditorScreen(
     var blocks by remember {
         mutableStateOf<List<EditorBlock>>(listOf(EditorBlock.Text(TextFieldValue(""))))
     }
+    var deleted by remember { mutableStateOf(false) }
+    var exiting by remember { mutableStateOf(false) }
+    var pendingMedia by remember { mutableIntStateOf(0) }
+    var attachmentCommitInFlight by remember { mutableStateOf(false) }
+    var skipDisposeSave by remember { mutableStateOf(false) }
     var savedId by remember { mutableStateOf<String?>(if (id.isBlank()) null else id) }
     var lastSaved by remember { mutableStateOf("") }
     var lastSavedTitle by remember { mutableStateOf("") }
-    var loaded by remember { mutableStateOf(false) }
+    // A new note has no asynchronous load to wait for. Treat it as ready
+    // immediately so an early Back or picker result cannot discard input.
+    var loaded by remember { mutableStateOf(id.isBlank()) }
+    var loadFailed by remember { mutableStateOf(false) }
+    var attachmentLoadFailed by remember { mutableStateOf(false) }
     var builtFromNote by remember { mutableStateOf(false) }
     var focusedIndex by remember { mutableIntStateOf(0) }
     var recording by remember { mutableStateOf(false) }
@@ -120,9 +131,14 @@ fun NoteEditorScreen(
     val scrollState = rememberScrollState()
 
     val context = LocalContext.current
+    val editorEpoch = remember(viewModel, id) { viewModel.currentWipeEpoch() }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val attachmentPlayer = remember(viewModel, id) {
+        social.tbone.notes.NoteAttachmentPlayer(viewModel.recordingGate, scope, editorEpoch)
+    }
     val perm = rememberPermissionRequester()
-    val recorderRef = remember { arrayOfNulls<MediaRecorder>(1) }
+    val recordingOwner = remember { Any() }
+    val editorDisposed = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
     // ── helpers ───────────────────────────────────────────────────────────────
     fun markerOf(att: NoteAttachmentUi) =
@@ -148,6 +164,7 @@ fun NoteEditorScreen(
             }
             val att = atts[m.groupValues[2]]
             if (att != null) out.add(EditorBlock.Att(att))
+            else out.add(EditorBlock.Text(TextFieldValue(m.value))) // preserve unresolved references
             cursor = m.range.last + 1
         }
         if (cursor < text.length) out.add(EditorBlock.Text(TextFieldValue(text.substring(cursor))))
@@ -191,15 +208,25 @@ fun NoteEditorScreen(
         return out
     }
 
-    fun performSave(onDone: (String) -> Unit = {}) {
+    var builtOnce by remember { mutableStateOf(false) }
+
+    fun performSave(force: Boolean = false, onError: (Exception) -> Unit = {
+        android.widget.Toast.makeText(context, "Could not save note; please try again.", android.widget.Toast.LENGTH_LONG).show()
+    }, onDone: (String) -> Unit = {}) {
+        if (deleted || !loaded || (id.isNotBlank() && !builtOnce)) return
+        if (attachmentLoadFailed) {
+            onError(IllegalStateException("Attachment data unavailable"))
+            return
+        }
         val text = serialize(blocks)
-        if (text.isBlank() && title.isBlank()) return
+        val submittedTitle = title
+        if (!force && savedId == null && text.isBlank() && submittedTitle.isBlank()) return
         val eid = savedId ?: java.util.UUID.randomUUID().toString()
         savedId = eid
-        viewModel.saveText(eid, title, text, folderId) { newId ->
+        viewModel.saveText(eid, submittedTitle, text, folderId, epoch = editorEpoch, onError = onError) { newId ->
             savedId = newId
-            lastSaved = serialize(blocks)
-            lastSavedTitle = title
+            lastSaved = text
+            lastSavedTitle = submittedTitle
             onDone(newId)
         }
     }
@@ -209,55 +236,100 @@ fun NoteEditorScreen(
     // been resolved into boxes; after the one-time build, `blocks` is the
     // source of truth so editing/inserting never gets clobbered.
     var rawText by remember { mutableStateOf<String?>(null) }
-    var builtOnce by remember { mutableStateOf(false) }
-    val attachmentsFlow = savedId?.let { viewModel.attachmentsFor(it) }
+    val attachmentsFlow = remember(savedId) { savedId?.let { viewModel.attachmentsFor(it) } }
+    var attachmentsLoaded by remember(savedId) { mutableStateOf(false) }
     var attachmentsMap by remember { mutableStateOf<Map<String, NoteAttachmentUi>>(emptyMap()) }
     attachmentsFlow?.let { flow ->
         LaunchedEffect(flow) {
-            flow.collect { list -> attachmentsMap = list.associateBy { it.id } }
+            try {
+                flow.collect { list ->
+                    attachmentsMap = list.associateBy { it.id }
+                    attachmentsLoaded = true
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Do not treat a decryption/storage error as an empty list and
+                // autosave a potentially destructive reconstruction.
+                attachmentLoadFailed = true
+                loadFailed = true
+            }
         }
     }
 
     LaunchedEffect(id) {
-        if (id.isNotBlank()) {
-            viewModel.getNote(id)?.let { note ->
+        try {
+            if (id.isNotBlank()) {
+                val note = viewModel.getNote(id) ?: throw IllegalStateException("Note not found")
+                if (note.kind != social.tbone.notes.NoteKind.NOTE) throw IllegalStateException("Not a text note")
                 title = note.title
                 rawText = note.text
                 lastSaved = note.text
                 lastSavedTitle = note.title
                 savedId = note.id
             }
-        }
-        loaded = true
-        if (id.isBlank()) {
-            delay(120)
-            focusRequesters[0]?.requestFocus()
+            loaded = true
+            if (id.isBlank()) {
+                delay(120)
+                runCatching { focusRequesters[0]?.requestFocus() }
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            loadFailed = true
+            android.widget.Toast.makeText(context, "Could not load note. No changes will be saved.", android.widget.Toast.LENGTH_LONG).show()
         }
     }
     // One-time rebuild of the storybook blocks once the note text AND its
     // attachments are both available.
-    LaunchedEffect(attachmentsMap, rawText, savedId, loaded) {
+    LaunchedEffect(attachmentsMap, attachmentsLoaded, rawText, savedId, loaded) {
         val rt = rawText
-        if (loaded && !builtOnce && rt != null && savedId != null) {
+        if (loaded && attachmentsLoaded && !builtOnce && rt != null && savedId != null) {
             blocks = buildBlocks(rt, attachmentsMap)
             builtOnce = true
         }
     }
 
     // ── autosave ──────────────────────────────────────────────────────────────
-    LaunchedEffect(blocks, title, loaded) {
-        if (loaded) {
+    LaunchedEffect(blocks, title, loaded, pendingMedia) {
+        if (loaded && pendingMedia == 0) {
             delay(1_200)
             if (serialize(blocks) != lastSaved || title != lastSavedTitle) performSave()
         }
     }
-    val saveOnExit by rememberUpdatedState({ performSave() })
+    val saveOnExit by rememberUpdatedState({ if (!skipDisposeSave && !attachmentCommitInFlight) performSave() })
     DisposableEffect(Unit) { onDispose { saveOnExit() } }
 
     fun back() {
-        saveOnExit()
-        onBack()
+        if (exiting || deleted) return
+        if (pendingMedia > 0 || recording) {
+            android.widget.Toast.makeText(context, "Finish saving or recording the attachment first.", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!loaded || (id.isNotBlank() && !builtOnce) ||
+            (savedId == null && title.isBlank() && serialize(blocks).isBlank())) {
+            skipDisposeSave = true
+            onBack()
+            return
+        }
+        exiting = true
+        fun saveBeforeLeaving() {
+            val submittedText = serialize(blocks)
+            val submittedTitle = title
+            performSave(onError = {
+                exiting = false
+                android.widget.Toast.makeText(context, "Could not save note; please try again.", android.widget.Toast.LENGTH_LONG).show()
+            }) {
+                if (serialize(blocks) != submittedText || title != submittedTitle) saveBeforeLeaving()
+                else {
+                    skipDisposeSave = true
+                    onBack()
+                }
+            }
+        }
+        saveBeforeLeaving()
     }
+    BackHandler { back() }
 
     // ── insert attachment at the focused text block's cursor ──────────────────
     fun insertAttachment(att: NoteAttachmentUi) {
@@ -277,14 +349,15 @@ fun NoteEditorScreen(
             }
             blocks = coalesce(newBlocks)
             focusedIndex = idx + 2
-            focusRequesters[idx + 2]?.requestFocus()
+            // The new text node is not attached until recomposition. Requesting
+            // focus through an old requester here can throw after mutating the
+            // blocks but before the attachment transaction is enqueued.
         } else {
             blocks = coalesce(
                 blocks.toMutableList().apply { add(this.size, EditorBlock.Att(att)) },
             )
             // focus the trailing text block the coalesce() call guarantees.
             focusedIndex = blocks.lastIndex
-            focusRequesters[blocks.lastIndex]?.requestFocus()
         }
     }
 
@@ -294,42 +367,96 @@ fun NoteEditorScreen(
         val next = blocks.indices.firstOrNull { it > afterIndex && blocks[it] is EditorBlock.Text }
             ?: blocks.lastIndex
         focusedIndex = next
-        focusRequesters[next]?.requestFocus()
+        runCatching { focusRequesters[next]?.requestFocus() }
     }
 
     fun attach(kind: String, mime: String, bytes: ByteArray) {
-        fun saveInto(noteId: String) {
-            viewModel.addAttachment(noteId, kind, mime, bytes) { attId ->
+        if (!loaded || deleted || exiting || attachmentCommitInFlight) return
+        attachmentCommitInFlight = true
+        pendingMedia++
+        val failed: (Exception) -> Unit = {
+            attachmentCommitInFlight = false
+            pendingMedia--
+            android.widget.Toast.makeText(context, "Could not save attachment; please try again.", android.widget.Toast.LENGTH_LONG).show()
+        }
+        // Ensure a parent exists, then save the bytes and inline marker in one
+        // Room transaction. Freeze edits during the transaction so a failure can
+        // restore the exact pre-insertion blocks, including selected text.
+        performSave(force = true, onError = failed) { noteId ->
+            val before = blocks
+            try {
+                val attId = java.util.UUID.randomUUID().toString()
                 val placeholder = NoteAttachmentUi(attId, noteId, kind, mime, bytes, bytes.size.toLong(), 0L)
                 insertAttachment(placeholder)
+                val submittedText = serialize(blocks)
+                val submittedTitle = title
+                viewModel.addAttachmentAndSaveText(noteId, attId, kind, mime, bytes,
+                    submittedTitle, submittedText, folderId, editorEpoch, onError = {
+                        blocks = before
+                        failed(it)
+                    }, onSaved = {
+                        lastSaved = submittedText
+                        lastSavedTitle = submittedTitle
+                        attachmentCommitInFlight = false
+                        pendingMedia--
+                    })
+            } catch (error: Exception) {
+                // An exception before enqueue must not leave a marker that a
+                // later autosave could persist without its encrypted bytes.
+                blocks = before
+                failed(error)
             }
         }
-        val nid = savedId
-        if (nid != null) saveInto(nid)
-        else performSave { newId -> saveInto(newId) }
     }
 
     fun beginRecording() {
+        if (deleted || exiting || pendingMedia > 0 || recording || !loaded) return
+        pendingMedia++
+        val epoch = editorEpoch
         scope.launch {
             val file = withContext(Dispatchers.IO) {
                 runCatching {
-                    val f = File(context.cacheDir, "note_voice_${System.currentTimeMillis()}.m4a")
-                    val r = MediaRecorder(context).apply {
-                        setAudioSource(MediaRecorder.AudioSource.MIC)
-                        setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                        setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                        setOutputFile(f.absolutePath)
-                        prepare()
-                        start()
+                    var created: File? = null
+                    val started = viewModel.recordingGate.startRegistered(recordingOwner, epoch) { register ->
+                        check(!editorDisposed.get()) { "editor closed" }
+                        var f: File? = null
+                        var r: MediaRecorder? = null
+                        val cleanup = social.tbone.toolbox.RecordingCleanup(
+                            stop = { checkNotNull(r).stop() },
+                            release = { r?.release() },
+                            delete = { f?.let { check(!it.exists() || it.delete()) { "recording deletion failed" } } },
+                        )
+                        register { discard -> cleanup.close(discard); Unit }
+                        val file = File.createTempFile("note_voice_", ".m4a", context.cacheDir)
+                        f = file
+                        // MediaRecorder(Context) is API 31+. minSdk is 26 and core-library
+                        // desugaring does not backport this, so call it only where it exists.
+                        @Suppress("DEPRECATION")
+                        val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            MediaRecorder(context)
+                        } else {
+                            MediaRecorder()
+                        }
+                        r = recorder
+                        recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+                        recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                        recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                        recorder.setOutputFile(file.absolutePath)
+                        recorder.prepare()
+                        recorder.start()
+                        cleanup.markStarted()
+                        created = file
                     }
-                    recorderRef[0] = r
-                    f
+                    if (started && epoch == viewModel.currentWipeEpoch()) created else null
                 }.getOrNull()
             }
             if (file != null) {
                 recorderFile = file
                 recording = true
+            } else {
+                android.widget.Toast.makeText(context, "Could not start recording.", android.widget.Toast.LENGTH_LONG).show()
             }
+            pendingMedia--
         }
     }
 
@@ -344,36 +471,59 @@ fun NoteEditorScreen(
         recording = false
         val file = recorderFile ?: return
         recorderFile = null
+        pendingMedia++
         scope.launch {
             val bytes = withContext(Dispatchers.IO) {
-                runCatching {
-                    recorderRef[0]?.stop()
-                    recorderRef[0]?.release()
-                    recorderRef[0] = null
-                    file.readBytes().also { try { file.delete() } catch (_: Exception) {} }
-                }.getOrNull()
+                try {
+                    viewModel.recordingGate.stop(recordingOwner)
+                    file.inputStream().use { it.readBounded(16 * 1024 * 1024) }
+                } catch (_: Exception) { null }
+                finally { file.delete() }
             }
-            if (bytes != null && bytes.isNotEmpty()) attach("voice", "audio/mp4", bytes) else try { file.delete() } catch (_: Exception) {}
+            if (bytes != null && bytes.isNotEmpty()) attach("voice", "audio/mp4", bytes) else {
+                android.widget.Toast.makeText(context, "Could not save recording (maximum 16 MB).", android.widget.Toast.LENGTH_LONG).show()
+            }
+            pendingMedia--
         }
     }
 
     fun removeAttachment(att: NoteAttachmentUi) {
-        viewModel.deleteAttachment(att.id)
-        // Remove the card AND merge the surrounding text blocks so no empty
-        // gap is left where the image/voice used to be.
+        if (deleted || exiting || !loaded || attachmentCommitInFlight || attachmentLoadFailed) return
+        val noteId = savedId ?: return
+        val before = blocks
+        attachmentCommitInFlight = true
+        pendingMedia++
         blocks = coalesce(blocks.filterNot { it is EditorBlock.Att && it.att.id == att.id })
+        val submittedText = serialize(blocks)
+        val submittedTitle = title
+        viewModel.removeAttachmentAndSaveText(noteId, att.id, submittedTitle, submittedText, folderId, editorEpoch,
+            onError = {
+                blocks = before
+                attachmentCommitInFlight = false
+                pendingMedia--
+                android.widget.Toast.makeText(context, "Could not remove attachment; please try again.", android.widget.Toast.LENGTH_LONG).show()
+            }, onSaved = {
+                lastSaved = submittedText
+                lastSavedTitle = submittedTitle
+                attachmentCommitInFlight = false
+                pendingMedia--
+            })
     }
 
     // Photo picker.
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
-        if (uri != null) {
+        if (uri != null && !deleted && !exiting) {
+            pendingMedia++
             scope.launch {
                 val bytes = withContext(Dispatchers.IO) {
                     runCatching {
-                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        context.contentResolver.openInputStream(uri)?.use { it.readBounded(16 * 1024 * 1024) }
                     }.getOrNull()
+                }
+                if (bytes == null) {
+                    android.widget.Toast.makeText(context, "Could not import image (maximum 16 MB)", android.widget.Toast.LENGTH_LONG).show()
                 }
                 if (bytes != null && bytes.isNotEmpty()) {
                     val mime = runCatching {
@@ -381,8 +531,21 @@ fun NoteEditorScreen(
                     }.getOrNull() ?: "image/*"
                     attach("image", mime, bytes)
                 }
+                pendingMedia--
             }
         }
+    }
+
+    // Do not let typing race with the one-time rebuild of an existing note.
+    if (id.isNotBlank() && (!loaded || !builtOnce)) {
+        Box(Modifier.fillMaxSize().background(BonyColors.Bg), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(if (loadFailed) "note unavailable" else "loading note…",
+                    color = BonyColors.TextMute)
+                Text("← back", Modifier.clickable { onBack() }.padding(16.dp), color = BonyColors.Accent)
+            }
+        }
+        return
     }
 
     Column(
@@ -393,6 +556,12 @@ fun NoteEditorScreen(
             .imePadding()
             .navigationBarsPadding(),
     ) {
+        if (attachmentLoadFailed) {
+            Text("Attachment data unavailable. Changes cannot be saved; copy any unsaved text before leaving.",
+                modifier = Modifier.padding(12.dp), color = BonyColors.Danger)
+            Text("← leave without saving", Modifier.clickable { skipDisposeSave = true; onBack() }.padding(12.dp),
+                color = BonyColors.Danger)
+        }
         // ── Top bar ───────────────────────────────────────────────────────────
         Row(
             modifier = Modifier
@@ -426,8 +595,17 @@ fun NoteEditorScreen(
                 modifier = Modifier
                     .appBorder(1.dp, BonyColors.Danger)
                     .clickable {
-                        savedId?.let { viewModel.delete(it) }
-                        onBack()
+                        if (pendingMedia > 0 || recording) {
+                            android.widget.Toast.makeText(context, "Finish saving or recording the attachment first.", android.widget.Toast.LENGTH_SHORT).show()
+                        } else if (!deleted && !exiting) {
+                            deleted = true // disposal must not recreate the deleted note
+                            val target = savedId
+                            if (target == null) { skipDisposeSave = true; onBack() }
+                            else viewModel.delete(target, epoch = editorEpoch, onError = {
+                                deleted = false
+                                android.widget.Toast.makeText(context, "Could not delete note; please try again.", android.widget.Toast.LENGTH_LONG).show()
+                            }) { skipDisposeSave = true; onBack() }
+                        }
                     }
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             )
@@ -437,7 +615,8 @@ fun NoteEditorScreen(
         // ── Title ─────────────────────────────────────────────────────────────
         OutlinedTextField(
             value = title,
-            onValueChange = { title = it },
+            onValueChange = { if (!attachmentCommitInFlight) title = it },
+            readOnly = attachmentCommitInFlight,
             placeholder = { Text("title", style = BonyType.meta.copy(color = BonyColors.TextMute)) },
             singleLine = true,
             textStyle = BonyType.body.copy(color = BonyColors.Text),
@@ -465,8 +644,9 @@ fun NoteEditorScreen(
                             // work exactly like a normal text field.
                             BasicTextField(
                                 value = block.tfv,
+                                readOnly = attachmentCommitInFlight,
                                 onValueChange = { tf ->
-                                    blocks = blocks.mapIndexed { i, b ->
+                                    if (!attachmentCommitInFlight) blocks = blocks.mapIndexed { i, b ->
                                         if (i == index) EditorBlock.Text(tf) else b
                                     }
                                 },
@@ -513,10 +693,10 @@ fun NoteEditorScreen(
                                     playing = playingId == block.att.id,
                                     onPlay = {
                                         if (playingId == block.att.id) {
-                                            stopPlayback(); playingId = null
+                                            attachmentPlayer.stop(); playingId = null
                                         } else {
-                                            stopPlayback(); playingId = block.att.id
-                                            playAttachment(context, block.att) { playingId = null }
+                                            playingId = block.att.id
+                                            attachmentPlayer.play(block.att.data) { playingId = null }
                                         }
                                     },
                                     onDelete = { removeAttachment(block.att) },
@@ -542,7 +722,8 @@ fun NoteEditorScreen(
                 active = recording,
                 onClick = { if (recording) stopRecording() else startRecording() },
             )
-            ToolbarChip("image", active = false, onClick = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, icon = Icons.Default.Image)
+            ToolbarChip(if (pendingMedia > 0) "saving…" else "image", active = false,
+                onClick = { if (pendingMedia == 0 && !recording) imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, icon = Icons.Default.Image)
             Text(
                 text = "permission needed: " + perm.lastDenial.orEmpty(),
                 style = BonyType.caption.copy(color = BonyColors.Danger),
@@ -553,8 +734,9 @@ fun NoteEditorScreen(
 
     DisposableEffect(Unit) {
         onDispose {
-            runCatching { recorderRef[0]?.release() }
-            stopPlayback()
+            editorDisposed.set(true)
+            viewModel.recordingGate.stopAfterDispose(recordingOwner)
+            attachmentPlayer.dispose()
         }
     }
 }
@@ -668,37 +850,6 @@ private fun AttachmentCard(
                 )
             }
         }
-    }
-}
-
-private var player: MediaPlayer? = null
-
-private fun playAttachment(context: Context, att: NoteAttachmentUi, onDone: () -> Unit) {
-    runCatching {
-        val file = File(context.cacheDir, "play_${att.id}.m4a")
-        file.writeBytes(att.data)
-        stopPlayback()
-        // Delete any stale play file after 6h grace is handled by CacheCleaner;
-        // we also clear the current file on completion to avoid accumulation.
-        player = MediaPlayer().apply {
-            setDataSource(file.absolutePath)
-            setOnCompletionListener {
-                stopPlayback()
-                try { file.delete() } catch (_: Exception) {}
-                onDone()
-            }
-            setOnErrorListener { _, _, _ -> try { file.delete() } catch (_: Exception) {}; false }
-            prepare()
-            start()
-        }
-    }
-}
-
-private fun stopPlayback() {
-    runCatching {
-        player?.stop()
-        player?.release()
-        player = null
     }
 }
 

@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.encodeToJsonElement
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import timber.log.Timber
 import social.tbone.Tunables
 import java.security.MessageDigest
 import java.security.Security
@@ -46,7 +47,16 @@ data class Event(
     fun verify(): Boolean {
         // A cached signature only authenticates the original payload, not a
         // different event claiming the same id. Always recompute the id first.
-        val result = runCatching { verifyId() && (VerifiedEventCache.contains(id) || verifySignature()) }.getOrDefault(false)
+        //
+        // Android 8 (API 26): failures used to be swallowed by getOrDefault(false),
+        // which made bad signatures indistinguishable from provider crashes
+        // (BouncyCastle collisions are common on API 26). We still never throw —
+        // callers depend on that — but the reason is now logged.
+        val outcome = runCatching { verifyId() && (VerifiedEventCache.contains(id) || verifySignature()) }
+        outcome.exceptionOrNull()?.let { error ->
+            Timber.e(error, "Event verification threw for id=$id")
+        }
+        val result = outcome.getOrDefault(false)
         if (result) VerifiedEventCache.add(id)
         return result
     }

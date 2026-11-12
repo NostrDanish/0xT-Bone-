@@ -1,5 +1,6 @@
 package social.tbone.ui.profile
 
+import social.tbone.ui.theme.feedPageBackground
 import social.tbone.ui.theme.appBorder
 import android.content.ComponentName
 import android.content.Intent
@@ -8,6 +9,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
+import androidx.compose.material3.MaterialTheme
+import dev.youniversal.theme.YouniversalTheme
+import social.tbone.ui.theme.appBackground
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,7 +32,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.SnackbarHost
+import dev.youniversal.theme.YouniversalSnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -140,7 +144,7 @@ fun ProfileScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BonyColors.Bg),
+            .background(feedPageBackground()),
     ) {
         CompositionLocalProvider(
             social.tbone.ui.feed.LocalQuoteState provides
@@ -158,7 +162,7 @@ fun ProfileScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(BonyColors.Bg)
+                        .background(feedPageBackground())
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -194,17 +198,21 @@ fun ProfileScreen(
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(BonyColors.Rule))
 
                 // ── Banner + Avatar ───────────────────────────────────────────
+                // Youniversal: inset + rounded like the feed's cards so the
+                // header speaks the same visual language as posts.
+                val youniversalHeader = YouniversalTheme.enabled
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(BANNER_HEIGHT + AVATAR_SIZE / 2),
+                        .height(BANNER_HEIGHT + AVATAR_SIZE / 2)
+                        .then(if (youniversalHeader) Modifier.padding(horizontal = 8.dp) else Modifier),
                 ) {
                     // Banner
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(BANNER_HEIGHT)
-                            .background(BonyColors.SurfaceAlt),
+                            .appBackground(BonyColors.SurfaceAlt, MaterialTheme.shapes.medium),
                     ) {
                         if (profile?.banner != null) {
                             AsyncImage(
@@ -339,6 +347,9 @@ fun ProfileScreen(
                                 enabled = !isFollowLoading,
                                 onClick = if (isFollowing) viewModel::unfollow else viewModel::follow,
                                 modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                minHeight = 28.dp,
+                                shape = MaterialTheme.shapes.small,
                             )
                             Spacer(Modifier.width(8.dp))
                             BonyButton(
@@ -347,6 +358,9 @@ fun ProfileScreen(
                                 enabled = !isBlockLoading,
                                 onClick = viewModel::toggleBlock,
                                 modifier = Modifier.weight(0.7f),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                minHeight = 28.dp,
+                                shape = MaterialTheme.shapes.small,
                             )
                             Spacer(Modifier.width(8.dp))
                             BonyButton(
@@ -375,6 +389,9 @@ fun ProfileScreen(
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                minHeight = 28.dp,
+                                shape = MaterialTheme.shapes.small,
                             )
                         }
                         if (followIsLocal || blockIsLocal) {
@@ -513,7 +530,7 @@ fun ProfileScreen(
             }
         }
 
-        SnackbarHost(
+        YouniversalSnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
