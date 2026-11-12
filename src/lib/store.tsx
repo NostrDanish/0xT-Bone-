@@ -97,7 +97,8 @@ interface AppContextValue {
   signer: Signer | null;
   loginNip07: () => Promise<void>;
   loginNsec: (nsecOrHex: string) => Promise<void>;
-  loginNip46: (userPubkey: string, signer: Nip46Signer) => void;  createAccount: () => void;
+  loginNip46: (userPubkey: string, signer: Nip46Signer) => void;
+  createAccount: () => void;
   logout: () => void;
   // relays
   relays: RelayInfo[];
@@ -387,6 +388,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     loginNip07,
     loginNsec,
     createAccount,
+    loginNip46,
     logout,
     relays,
     setRelays,
