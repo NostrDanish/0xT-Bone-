@@ -341,7 +341,13 @@ export class Nip46Signer implements Signer {
   async sign(ev: EventTemplate): Promise<NostrEvent> {
     const result = await this.rpc(
       "sign_event",
-      [JSON.stringify({ kind: ev.kind, content: ev.content, tags: ev.tags, created_at: ev.created_at })],
+      [JSON.stringify({
+        pubkey: this.pubkey,
+        kind: ev.kind,
+        content: ev.content,
+        tags: ev.tags,
+        created_at: ev.created_at,
+      })],
       90_000,
     );
     let signed: NostrEvent;
@@ -350,8 +356,8 @@ export class Nip46Signer implements Signer {
     } catch {
       throw new Error("Malformed sign_event response");
     }
-    // Match the Android signer's defensive validation: a remote signer
-    // may add a client tag, but it must not substitute the account or draft.
+    // Match the Android signer's defensive validation: reject any signer
+    // that substitutes the account or changes the event draft.
     if (signed.pubkey !== this.pubkey) throw new Error("Signer substituted the account pubkey");
     if (signed.kind !== ev.kind) throw new Error("Signer substituted the event kind");
     if (signed.content !== ev.content) throw new Error("Signer substituted the event content");
