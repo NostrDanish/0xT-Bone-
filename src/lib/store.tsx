@@ -103,7 +103,7 @@ interface AppContextValue {
   // relays
   relays: RelayInfo[];
   setRelays: (r: RelayInfo[]) => void;
-  relayUrls: () => string[];
+  relayUrls: string[];
   writeRelayUrls: () => string[];
   // follows
   follows: Set<string>;
@@ -136,10 +136,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [account, setAccount] = useState<AccountInfo | null>(() => load<AccountInfo | null>(LS.account, null));
   const [signer, setSigner] = useState<Signer | null>(null);
   const [relays, setRelaysState] = useState<RelayInfo[]>(() => {
-    const saved = loadArray(LS.relays);
-    return saved.length
-      ? saved
-      : DEFAULT_RELAYS.map((url) => ({ url, read: true, write: true }));
+    try {
+      const saved = JSON.parse(localStorage.getItem(LS.relays) ?? "null");
+      if (
+        Array.isArray(saved) &&
+        saved.every((r) => r && typeof r.url === "string" && typeof r.read === "boolean" && typeof r.write === "boolean")
+      ) return saved as RelayInfo[];
+    } catch { /* use defaults for missing or malformed relay settings */ }
+    return DEFAULT_RELAYS.map((url) => ({ url, read: true, write: true }));
   });
   const [follows, setFollows] = useState<Set<string>>(new Set(loadArray(LS.follows)));
   const [muted] = useState<Set<string>>(new Set());
@@ -392,7 +396,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     logout,
     relays,
     setRelays,
-    relayUrls: () => relayUrls,
+    relayUrls,
     writeRelayUrls,
     follows,
     toggleFollow,
@@ -412,6 +416,9 @@ export function useStoreTick(): number {
   const { tick } = useApp();
   // store also notifies independently; combine with a local subscription
   const [v, setV] = React.useState(0);
-  React.useEffect(() => store.subscribe(() => setV((x) => x + 1)), []);
+  React.useEffect(() => {
+    const unsubscribe = store.subscribe(() => setV((x) => x + 1));
+    return () => { unsubscribe(); };
+  }, []);
   return v + tick;
 }
