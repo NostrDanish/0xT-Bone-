@@ -48,7 +48,7 @@ export default function Profile() {
     if (!signer) return;
     setZapMsg("Sending zap…");
     try {
-      const res = await sendZap(signer, pk, undefined, 21000, relayUrls(), settings.nwcUri);
+      const res = await sendZap(signer, pk, undefined, 21000, relayUrls, settings.nwcUri);
       setZapMsg(res.paid ? "Zap sent ⚡" : res.invoice ? "Invoice ready — opening wallet…" : "No invoice");
       if (res.invoice && !res.paid) window.open(`lightning:${res.invoice}`, "_blank");
     } catch (e: any) {
