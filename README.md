@@ -1,83 +1,68 @@
-# T-Bone for Android
+# T-Bone Web
 
-A privacy-focused Nostr client for Android. No Google Play Services, analytics, or tracking. Licensed under MIT.
+A standalone browser-first Nostr client based on [T-Bone](https://github.com/toddsmith456/T-Bone-). This fork's product target is the web app: React + TypeScript + Vite, installable as a PWA, with no Android runtime or Gradle dependency in the web build.
 
-[Download the latest release](https://github.com/toddsmith456/T-Bone-/releases/latest) · [Changelog](CHANGELOG.md) · [Privacy policy](docs/PRIVACY.md)
+**Privacy first:** no analytics, tracking SDKs, or application backend are required. The browser communicates with the Nostr relays configured by the user. For remote signing, the user's private key remains with their signer.
 
-## T-Bone Web (desktop & browser)
+## Run locally
 
-This repository now also ships **T-Bone Web** — a fully working browser/desktop client that brings the
-T-Bone experience to any device with a web browser (installable as a PWA, no Google services involved).
+Requirements: Node.js 22 or newer.
 
 ```bash
 npm install
-npm run dev      # local dev server
-npm run build    # production build into dist/
+npm run dev
 ```
 
-What's implemented on the web side (all state stays in your browser, nothing is sent to any server
-other than the Nostr relays you configure):
-
-- **Login** via a NIP-07 browser extension (Alby, nos2x, …), an `nsec`, a freshly generated device-local key, or **Amber / any NIP-46 remote signer** — scan the on-screen QR with Amber and every signing request is routed to your phone over relays (the browser never sees your key). `bunker://` tokens from Amber/nsec.app/nsecBunker are accepted too
-- **Feeds**: following & global timelines, hashtag pages (`/tag/<tag>`), load-more pagination
-- **Composing**: new notes, replies (NIP-10 threads), quote-notes (NIP-18), reposts, hashtags, `nostr:` entity links (NIP-19/21/27)
-- **Interactions**: likes (NIP-25), reposts, reply counts, thread view with parent chain, deletion (NIP-09 best effort)
-- **Zaps (NIP-57)** with LNURL-pay resolution (lud16/lud06 incl. bech32) and automatic in-app payment via **NWC (NIP-47)**; without a wallet the invoice is handed to your system `lightning:` handler
-- **Notifications inbox** with filters: mentions/replies, reactions, reposts, zap receipts
-- **Profiles**: kind-0 metadata, banner, bio, NIP-05, follow/unfollow publishing kind-3
-- **Search**: NIP-50 relay search with local-cache fallback; npub/nprofile jump links
-- **Relay management** with live status probes, read/write flags, and NIP-65 relay-list publishing
-- **Private Toolbox**: notes & checklists with folders, encrypted with AES-256-GCM + PBKDF2 (210k) via WebCrypto — passphrase-only, local-only
-- **Youniversal theming**: dark / light / cream, 7 accent colors, adjustable corner radius, app-wide text scaling, system or Nunito Sans font
-- **Backup/export** of all local data as JSON
-
-The Android app lives under `app/` and is unchanged.
-
-## Features
-
-- **Nostr social:** Following and global feeds; profile and hashtag search; relay management; profiles; replies, full threads, quote-notes, reposts, polls, emoji reactions, and sharing.
-- **Accounts and identity:** Multiple accounts; Amber, nsecBunker, or a device-local key protected by Android Keystore. Short BIP-39 word fingerprints and configurable avatars make identities easier to recognize.
-- **Notifications:** An in-app inbox with filters, recent history, note previews, and inline replies. No push-notification service.
-- **Photos and video:** Inline media, image and video viewers, downloads, playback controls, and uploads to configurable Blossom servers.
-- **Wallet hand-offs:** Lightning zaps (NIP-57) request and validate invoices before opening an external Lightning wallet; Monero xaps use NIP-A3 kind-10133 payment targets and hand off to an external Monero wallet. T-Bone never marks a wallet hand-off as a confirmed payment.
-- **Privacy and safety:** Optional Tor routing through Orbot; local-only follow and block lists; content filters and screen-time limits; app lock, screenshot blocking, and a duress PIN.
-- **Private toolbox:** Notes, checklists, folders, attachments, and calendar events encrypted on-device with AES-256-GCM and Android Keystore. Also includes geohash chat and a voice recorder with voice anonymization.
-- **Appearance:** Youniversal offers light, dark, cream, and automatic themes, accent and Material You colors, rounded-by-default adjustable corners, app-wide text scaling, and two fonts (standard sans-serif by default or Nunito Sans).
-
-See the [NIP compatibility guide](docs/nip-compatibility.md) for protocol details.
-
-## Install
-
-Download `T-Bone-fork-<version>-release.apk` from [Releases](https://github.com/toddsmith456/T-Bone-/releases/latest) and install it on Android 8.0 or newer. The app ID is `social.tbone.fork`, so it can be installed alongside the original T-Bone app.
-
-Releases include the release APK and `SHA256SUMS.txt`—not a debug APK. To verify the download, place both files in one folder and run:
+Production build:
 
 ```bash
-sha256sum -c SHA256SUMS.txt
+npm run typecheck
+npm run build
+npm run preview
 ```
 
-## Build from source
+The production output is `dist/`. Deploy it to any static host that supports SPA fallback/rewrite to `index.html` (the repository includes Vercel and Cloudflare Pages fallback configuration).
 
-```bash
-git clone https://github.com/toddsmith456/T-Bone-.git
-cd T-Bone-
-./gradlew :app:assembleDebug
-```
+## Authentication
 
-The debug variant is for local development; it is not published with GitHub releases. Minimum supported Android version: 8.0 (API 26).
+- **Amber / remote signer:** NIP-46 `nostrconnect://` QR flow and `bunker://` URI flow. The browser generates a disposable client keypair, validates the connection secret, obtains the user's public key with `get_public_key`, and follows the signer's relay-switch response.
+- **Browser extensions:** NIP-07 via `window.nostr`.
+- **Local key:** nsec import and browser-generated account are available for testing. These currently use browser-local storage and are not a hardened vault; use Amber or another external signer for valuable identities.
 
-## Versioning
+Amber's native Android integration in the original app uses NIP-55 intents. This browser client uses NIP-46, the remote-signing protocol designed for web and cross-device signer connections. The web client does not depend on Android intents or Android APIs.
 
-`version.properties` is the single source of truth for `versionName` and `versionCode`. `app/build.gradle.kts` reads it, and Android exposes the same values through `BuildConfig` to the Settings screen, Update Center, and APK verification. Bump releases with `./scripts/make-release.sh <version>`; CI rejects a `v<version>` tag that does not match.
+## Web features
 
-## Project links
+- Following and global feeds, hashtag pages, note threads and pagination
+- Compose notes, replies and quote notes; reactions and reposts
+- Profiles, follow/unfollow, search and relay management
+- Notifications for mentions/replies, reactions, reposts and zap receipts
+- Lightning zaps through LNURL-pay, with optional Nostr Wallet Connect (NIP-47)
+- Private local toolbox with encrypted notes and checklists
+- Theme, typography and appearance settings
+- Local data backup/export
 
-- [Privacy rules and enforcement](docs/PRIVACY.md)
-- [NIP compatibility](docs/nip-compatibility.md)
-- [Release process](docs/RELEASE.md)
-- [Contributing](CONTRIBUTING.md)
-- [Full changelog](CHANGELOG.md)
+The web app is a browser implementation, not a claim that every Android-only T-Bone feature has already been ported. Feature parity should be tracked and tested explicitly as the web client develops.
 
-## License
+## Project structure
 
-MIT — see [LICENSE](LICENSE).
+- `src/` — React web client, UI, Nostr transport, signers and application state
+- `public/` — PWA assets and static-host routing fallback
+- `index.html`, `vite.config.ts`, `tsconfig.json`, `package.json` — web entry point and build configuration
+- `.github/workflows/web.yml` — web typecheck and production-build CI
+- `app/`, Gradle files and Android-specific documentation — retained from the upstream source for lineage/reference; they are not imported by the web build or required to run/deploy T-Bone Web
+
+## Upstream and license
+
+- Original project: [toddsmith456/T-Bone-](https://github.com/toddsmith456/T-Bone-)
+- Web fork: [NostrDanish/0xT-Bone-](https://github.com/NostrDanish/0xT-Bone-)
+- License: MIT — see [LICENSE](LICENSE). Preserve the upstream copyright and license notice in redistributed copies.
+
+## Protocol references
+
+- [NIP-01 — Basic protocol](https://github.com/nostr-protocol/nips/blob/master/01.md)
+- [NIP-07 — Browser extension](https://github.com/nostr-protocol/nips/blob/master/07.md)
+- [NIP-19 — Bech32-encoded entities](https://github.com/nostr-protocol/nips/blob/master/19.md)
+- [NIP-44 — Encrypted payloads](https://github.com/nostr-protocol/nips/blob/master/44.md)
+- [NIP-46 — Remote signing](https://github.com/nostr-protocol/nips/blob/master/46.md)
+- [NIP-65 — Relay list metadata](https://github.com/nostr-protocol/nips/blob/master/65.md)
