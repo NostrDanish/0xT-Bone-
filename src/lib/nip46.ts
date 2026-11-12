@@ -247,7 +247,7 @@ export class Nip46Signer implements Signer {
     try {
       this.sub = pool.subscribeMany(
         this.relays,
-        { kinds: [RESPONSE_KIND, LEGACY_REQUEST_KIND], authors: [this.signerPubkey], "#p": [this.myPubkey], since },
+        { kinds: [RESPONSE_KIND], authors: [this.signerPubkey], "#p": [this.myPubkey], since },
         {
           onevent: (ev: NostrEvent) => {
             if (this.destroyed || !verifyEvent(ev)) return;
