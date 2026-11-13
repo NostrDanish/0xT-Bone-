@@ -1,5 +1,7 @@
 # T-Bone Web
 
+**[Open the live T-Bone Web app](https://t-bone-sip-01.vercel.app/)**
+
 A standalone browser-first Nostr client based on [T-Bone](https://github.com/toddsmith456/T-Bone-). This fork's product target is the web app: React + TypeScript + Vite, browser app with PWA metadata, with no Android runtime or Gradle dependency in the web build.
 
 **Privacy first:** no analytics, tracking SDKs, or application backend are required. The browser communicates with the Nostr relays configured by the user. For remote signing, the user's private key remains with their signer.
