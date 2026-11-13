@@ -187,7 +187,7 @@ export function parseBunkerUri(uri: string): ParsedBunkerUri {
   const relays = [...new Set(relayParams.map((relay) => {
     let parsed: URL;
     try { parsed = new URL(relay); } catch { throw new Error("Invalid relay URL in bunker URI"); }
-    if (parsed.protocol !== "wss:" || !parsed.hostname) {
+    if (parsed.protocol !== "wss:" || !parsed.hostname || parsed.username || parsed.password) {
       throw new Error("Bunker relays must use secure wss:// URLs");
     }
     return parsed.toString();
