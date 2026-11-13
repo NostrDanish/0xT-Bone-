@@ -10,13 +10,11 @@
  *    the response author and validates the echoed secret.
  *
  * 2. Signer-initiated: the user pastes a `bunker://` token (Amber >
- *    Settings > Bunker). The client derives its keypair from the secret
- *    when it is a 64-hex key (nsecBunker convention) and sends a `connect`
- *    request RPC.
+ *    Settings > Bunker). The client creates a fresh ephemeral keypair and
+ *    sends a `connect` request using the token's one-time secret.
  *
- * Transport: request + response events are kind 24133 (current spec),
- * content NIP-44 v2 encrypted (NIP-04 fallback when decrypting).
- * NIP-46 request and response events use kind 24133.
+ * Transport: NIP-46 request and response events use kind 24133,
+ * with NIP-44 v2 encrypted content (NIP-04 fallback when decrypting).
  */
 import type { Event as NostrEvent, EventTemplate } from "nostr-tools";
 import { finalizeEvent, generateSecretKey, getPublicKey, nip04, nip44 } from "nostr-tools";
@@ -142,7 +140,7 @@ export function awaitAmberScan(
         onclose: () => {
           if (!done) {
             done = true;
-            timer = null;
+            cleanup();
             reject(new Error("Connection closed before Amber responded"));
           }
         },
@@ -342,7 +340,6 @@ export class Nip46Signer implements Signer {
     const result = await this.rpc(
       "sign_event",
       [JSON.stringify({
-        pubkey: this.pubkey,
         kind: ev.kind,
         content: ev.content,
         tags: ev.tags,
@@ -391,7 +388,7 @@ export class Nip46Signer implements Signer {
         list.length <= 20 &&
         list.every((x) => {
           if (typeof x !== "string") return false;
-          try { return new URL(x).protocol === "wss:"; } catch { return false; }
+          try { const u = new URL(x); return u.protocol === "wss:" && !!u.hostname; } catch { return false; }
         })
       ) {
         const safeList = [...new Set(list as string[])];
@@ -417,6 +414,7 @@ export class Nip46Signer implements Signer {
       p.reject(new Error("Signer closed"));
     }
     this.pending.clear();
+    this.sk.fill(0);
     try {
       this.sub?.close();
     } catch { /* noop */ }
