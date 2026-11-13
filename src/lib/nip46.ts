@@ -167,34 +167,46 @@ export function awaitAmberScan(
   };
 }
 
+export interface ParsedBunkerUri {
+  signerPubkey: string;
+  relays: string[];
+  secret: string;
+}
+
+/** Parse and validate the signer-issued NIP-46 connection token. */
+export function parseBunkerUri(uri: string): ParsedBunkerUri {
+  const match = uri.trim().match(/^bunker:\/\/([0-9a-fA-F]{64})(\?.*)?$/);
+  if (!match) throw new Error("Not a valid bunker:// URI");
+
+  const signerPubkey = match[1].toLowerCase();
+  const params = new URLSearchParams(match[2] ?? "");
+  const relayParams = params.getAll("relay");
+  if (relayParams.length === 0) throw new Error("bunker:// URI has no relays");
+  if (relayParams.length > 20) throw new Error("bunker:// URI contains too many relays");
+
+  const relays = [...new Set(relayParams.map((relay) => {
+    let parsed: URL;
+    try { parsed = new URL(relay); } catch { throw new Error("Invalid relay URL in bunker URI"); }
+    if (parsed.protocol !== "wss:" || !parsed.hostname || parsed.username || parsed.password) {
+      throw new Error("Bunker relays must use secure wss:// URLs");
+    }
+    return parsed.toString();
+  }))];
+
+  return { signerPubkey, relays, secret: params.get("secret") ?? "" };
+}
+
 /** Connect by pasting a bunker:// token (signer-initiated flow). */
 export async function connectBunkerUri(
   uri: string,
   opts: { onAuth?: (url: string) => void; timeoutMs?: number } = {},
 ): Promise<Nip46Signer> {
-  const m = uri.trim().match(/^bunker:\/\/([0-9a-fA-F]{64})(\?.*)?$/);
-  if (!m) throw new Error("Not a valid bunker:// URI");
-  const signerPubkey = m[1].toLowerCase();
-  const params = new URLSearchParams(m[2] ?? "");
-  const relays = params.getAll("relay");
-  if (relays.length === 0) throw new Error("bunker:// URI has no relays");
-  const secret = params.get("secret") ?? "";
+  const { signerPubkey, relays, secret } = parseBunkerUri(uri);
 
   // The bunker URI secret is a one-time pairing secret, not a client
   // private key. NIP-46 clients generate their own ephemeral keypair.
   const clientSecretHex = bytesToHex(generateSecretKey());
-
-  const safeRelays = [...new Set(relays.map((relay) => {
-    let parsed: URL;
-    try { parsed = new URL(relay); } catch { throw new Error("Invalid relay URL in bunker URI"); }
-    if (parsed.protocol !== "wss:" || !parsed.hostname) {
-      throw new Error("Bunker relays must use secure wss:// URLs");
-    }
-    return parsed.toString();
-  }))];
-  if (safeRelays.length === 0) throw new Error("bunker:// URI has no usable relays");
-
-  const signer = new Nip46Signer(safeRelays, clientSecretHex, signerPubkey);
+  const signer = new Nip46Signer(relays, clientSecretHex, signerPubkey);
   try {
     await signer.handshake(secret, opts);
     return signer;
@@ -291,7 +303,7 @@ export class Nip46Signer implements Signer {
   /** Send an RPC request and wait for the response. */
   rpc(method: string, params: string[], timeoutMs = 45_000, onAuth?: (url: string) => void): Promise<string> {
     if (this.destroyed) return Promise.reject(new Error("Signer closed"));
-    const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const id = crypto.randomUUID();
     const content = nip44.v2.encrypt(
       JSON.stringify({ id, method, params }),
       this.convKey(this.signerPubkey),
@@ -342,7 +354,6 @@ export class Nip46Signer implements Signer {
     const result = await this.rpc(
       "sign_event",
       [JSON.stringify({
-        pubkey: this.pubkey,
         kind: ev.kind,
         content: ev.content,
         tags: ev.tags,

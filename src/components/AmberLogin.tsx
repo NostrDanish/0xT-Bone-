@@ -29,6 +29,19 @@ export default function AmberLogin({ onLogin }: Props) {
   const attemptRef = useRef(0);
   const cancelScanRef = useRef<(() => void) | null>(null);
 
+  const handleAuthUrl = useCallback((value: string) => {
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol !== "https:") {
+        setError("Amber returned an invalid approval URL (HTTPS is required).");
+        return;
+      }
+      setAuthUrl(parsed.toString());
+    } catch {
+      setError("Amber returned an invalid approval URL.");
+    }
+  }, []);
+
   const finish = useCallback(
     async (signer: Nip46Signer) => {
       signerRef.current = signer;
@@ -71,7 +84,7 @@ export default function AmberLogin({ onLogin }: Props) {
     setStatus("Waiting for Amber…");
 
     const scan = awaitAmberScan(AMBER_RELAYS, s.clientSecretHex, s.secret, {
-      onAuth: (url) => setAuthUrl(url),
+      onAuth: handleAuthUrl,
       onSeen: () => setStatus("Amber responded — completing handshake…"),
       timeoutMs: 5 * 60_000,
     });
@@ -96,7 +109,7 @@ export default function AmberLogin({ onLogin }: Props) {
       signerRef.current?.destroy();
       signerRef.current = null;
     };
-  }, [mode, gen, finish]);
+  }, [mode, gen, finish, handleAuthUrl]);
 
   /* --- bunker:// paste flow ------------------------------------------ */
   async function connectPaste() {
@@ -104,7 +117,7 @@ export default function AmberLogin({ onLogin }: Props) {
     setError(null);
     setStatus("Connecting to bunker…");
     try {
-      const signer = await connectBunkerUri(bunkerInput, { onAuth: (url) => setAuthUrl(url) });
+      const signer = await connectBunkerUri(bunkerInput, { onAuth: handleAuthUrl });
       await finish(signer);
     } catch (e: any) {
       setError(e?.message ?? "Connection failed");
