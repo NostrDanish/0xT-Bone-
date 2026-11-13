@@ -1,28 +1,27 @@
-*.iml
-.gradle
-/local.properties
-/.idea
+# Node / Vite
+node_modules/
+dist/
+.vite/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Deployment tooling
+.vercel/
+.wrangler/
+
+# Local environment (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
+# OS / editor
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
-java_pid*.hprof
-/app/build/
-AUDIT.md
-CLAUDE.md
-docs/notes-*.md
-.kotlin
-# ---- fork additions: never commit signing material or build output ----
-*.jks
-*.keystore
-*.p12
-*.pfx
-*.b64
-fork-release.*
-release.keystore
-/dist/
-/app/release/
-/node_modules/
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local backups
 src-bak/
