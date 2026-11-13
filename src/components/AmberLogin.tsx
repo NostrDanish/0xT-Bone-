@@ -109,7 +109,7 @@ export default function AmberLogin({ onLogin }: Props) {
       signerRef.current?.destroy();
       signerRef.current = null;
     };
-  }, [mode, gen, finish]);
+  }, [mode, gen, finish, handleAuthUrl]);
 
   /* --- bunker:// paste flow ------------------------------------------ */
   async function connectPaste() {
