@@ -1,3 +1,0 @@
--keep class social.tbone.nostr.** { *; }
--keep class org.bouncycastle.** { *; }
--dontwarn org.bouncycastle.**
